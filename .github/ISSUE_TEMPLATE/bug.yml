@@ -1,0 +1,59 @@
+---
+name: Bug report
+about: Create a report to help kopiaprofile improve
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+assignees: []
+---
+
+## Describe the bug
+
+A clear and concise description of what the bug is.
+
+## To reproduce
+
+Steps to reproduce the behaviour, including the exact kopiaprofile
+command and the relevant excerpt of the YAML configuration:
+
+```bash
+$ kopiaprofile home snapshot create /tmp/data
+$ kopiaprofile home status
+```
+
+```yaml
+# kopiaprofile.yaml excerpt
+profiles:
+  home:
+    repository:
+      type: s3
+      ...
+```
+
+## Expected behaviour
+
+What you expected to happen.
+
+## Actual behaviour
+
+What actually happened. Include the exact error message and a
+verbose run (`-v` flag) if it helps.
+
+## Environment
+
+- kopiaprofile version (`kopiaprofile version`):
+- kopia version (`kopia --version`):
+- OS (e.g. `macos 14.5`, `ubuntu 24.04`):
+- Repository backend (e.g. `s3`, `filesystem`, `b2`):
+
+## Logs
+
+If applicable, attach the verbose run output:
+
+```
+... paste here ...
+```
+
+## Additional context
+
+Anything else that might be relevant (e.g. object-lock enabled,
+multi-repo copy, hooks).

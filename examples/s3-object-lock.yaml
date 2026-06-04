@@ -1,0 +1,42 @@
+version: "1"
+
+profiles:
+  # S3 with Object-Lock in COMPLIANCE mode (immutable backups).
+  # The bucket must be created with object-lock enabled and a
+  # DefaultRetention set. See docs/SETUP-S3-OBJECT-LOCK.md for the
+  # AWS CLI commands.
+  compliance:
+    description: "S3 backup with COMPLIANCE Object-Lock"
+    initialize: true
+    repository:
+      type: s3
+      bucket: my-compliance-bucket
+      endpoint: s3.eu-central-1.amazonaws.com
+      region: eu-central-1
+      prefix: "compliance"
+      object-lock:
+        mode: compliance
+        retention-period: 2160h     # 90 days (informational)
+        extend-on-maintenance: true
+    password:
+      source: command
+      command: "vault read -field=password secret/kopia/compliance"
+    env:
+      AWS_ACCESS_KEY_ID:     "{{ .Env.AWS_ACCESS_KEY_ID }}"
+      AWS_SECRET_ACCESS_KEY: "{{ .Env.AWS_SECRET_ACCESS_KEY }}"
+    backup:
+      sources: [ /srv/important-data ]
+      tags: [ "compliance", "host:{{ .Hostname }}" ]
+    retention:
+      keep-latest: 30
+      keep-daily: 90
+      keep-weekly: 52
+
+  # S3 with Object-Lock in GOVERNANCE mode (bypassable by privileged users).
+  governance:
+    description: "S3 backup with GOVERNANCE Object-Lock"
+    inherit: compliance
+    repository:
+      prefix: "governance"
+      object-lock:
+        mode: governance

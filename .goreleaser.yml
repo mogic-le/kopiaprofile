@@ -1,0 +1,216 @@
+# .goreleaser.yml — GoReleaser v2 config for kopiaprofile
+#
+# Run locally with `make snapshot` (or `goreleaser release --clean
+# --snapshot --skip=publish,validate`). Full release is driven by
+# `.github/workflows/release.yml` on tag push.
+
+version: 2
+
+project_name: kopiaprofile
+
+before:
+  hooks:
+    - go mod download
+    - go mod tidy
+
+# Build the main binary.
+builds:
+  - id: kopiaprofile
+    main: .
+    binary: kopiaprofile
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+      - freebsd
+      - openbsd
+      - netbsd
+    goarch:
+      - "386"
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: freebsd
+        goarch: arm64
+      - goos: openbsd
+        goarch: arm
+      - goos: netbsd
+        goarch: "386"
+      - goos: windows
+        goarch: arm
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.CommitDate}}
+      - -X main.builtBy=goreleaser
+
+archives:
+  - id: kopiaprofile-default
+    ids:
+      - kopiaprofile
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - examples/*
+      - docs/*
+
+  - id: kopiaprofile-zip
+    ids:
+      - kopiaprofile
+    formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+    modtime: "{{ .CommitTimestamp }}"
+
+nfpms:
+  - id: packages
+    package_name: kopiaprofile
+    ids:
+      - kopiaprofile
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    section: utils
+    priority: optional
+    homepage: https://github.com/mogic-le/kopiaprofile
+    maintainer: DrDth <DrDth@users.noreply.github.com>
+    description: |
+      kopiaprofile is a configuration wrapper for kopia, inspired by
+      resticprofile. Single config file, many profiles, inheritance,
+      hooks, locks and secret-aware logging.
+    license: GPL-3.0
+    contents:
+      - src: ./manpages/kopiaprofile.1
+        dst: /usr/share/man/man1/kopiaprofile.1
+        file_info:
+          mode: 0644
+    dependencies: []
+
+# Checksums for the release artefacts.
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+  algorithm: sha256
+
+# Sign artefacts with cosign (keyless, tied to the GitHub OIDC token).
+# Enable in `.github/workflows/release.yml` once a cosign policy is
+# decided.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: '${artifact}.sig'
+    output: true
+    env:
+      - COSIGN_EXPERIMENTAL=1
+
+# SHA-256 / SBOM for compliance users.
+sboms:
+  - id: source
+    artifacts: archive
+    cmd: cyclonedx-gomod
+    # CycloneDX is the de-facto SBOM format for Go projects.
+
+# Use the section between `<!-- git-chglog LATEST-START -->` and
+# `<!-- git-chglog LATEST-END -->` in `CHANGELOG.md` as the body of
+# the GitHub release notes.
+changelog:
+  use: git
+  groups:
+    - title: Features
+      regexp: '^.*?(?i)(\bfeat\b|\bfeature\b)[\(\)\w\s]*:'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^.*?(?i)(\bfix\b|\bbugfix\b)[\(\)\w\s]*:'
+      order: 1
+    - title: "Performance Improvements"
+      regexp: '^.*?(?i)(\bperf\b)[\(\)\w\s]*:'
+      order: 2
+    - title: "Refactoring"
+      regexp: '^.*?(?i)(\brefactor\b)[\(\)\w\s]*:'
+      order: 3
+    - title: "Reverts"
+      regexp: '^.*?(?i)(\brevert\b)[\(\)\w\s]*:'
+      order: 4
+    - title: "Build System"
+      regexp: '^.*?(?i)(\bbuild\b|\bci\b)[\(\)\w\s]*:'
+      order: 5
+    - title: "Documentation"
+      regexp: '^.*?(?i)(\bdoc\b|\bdocs\b)[\(\)\w\s]*:'
+      order: 6
+  filters:
+    exclude:
+      - "^Merge branch"
+      - "^Merge pull request"
+      - "^ci\\("
+      - "^test\\("
+      - "^docs\\("
+      - "^style\\("
+      - "^chore\\("
+  format: "{{.SHA}}: {{.Message}} ({{.AuthorName}})"
+  sort: asc
+  abbrev: 7
+
+# Do NOT push a Docker image (kopiaprofile is a pure CLI; users install
+# the binary directly, via the per-distro package, or via `go install`).
+
+release:
+  draft: true
+  prerelease: auto
+  header: |
+    ## kopiaprofile {{ .Tag }}
+
+    > A configuration wrapper for [Kopia](https://kopia.io), inspired by
+    > [resticprofile](https://github.com/creativeprojects/resticprofile).
+  footer: |
+    ## Verifying the artefacts
+
+    Each release ships a `kopiaprofile_VERSION_SHA256SUMS` file and (if
+    cosign is enabled) a `kopiaprofile_VERSION_SHA256SUMS.sig` keyless
+    signature. Verify with:
+
+    ```bash
+    sha256sum -c kopiaprofile_VERSION_SHA256SUMS
+    cosign verify-blob kopiaprofile_VERSION_SHA256SUMS \
+      --certificate-identity-regexp 'https://github.com/mogic-le/kopiaprofile' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+    ```
+  name_template: "{{.ProjectName}} v{{.Version}}"
+  discussion_category_name: General
+  make_latest: true
+
+# GitHub-style markers we want the release body to include. The
+# `changelog` block above is the source of truth for the per-commit
+# list.
+env_files:
+  github_token: "${{ secrets.GITHUB_TOKEN }}"

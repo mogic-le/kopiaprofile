@@ -1,0 +1,65 @@
+# rustfs - lightweight S3-compatible storage for kopiaprofile integration tests
+#
+# Run with:
+#   docker compose -f testdata/docker-compose.rustfs.yaml up -d
+# Stop & reset with:
+#   docker compose -f testdata/docker-compose.rustfs.yaml down -v
+#
+# Endpoints (after start):
+#   S3 API:   http://localhost:9000
+#   Console:  http://localhost:9001
+#
+# The bootstrap container creates the test bucket on first start.
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: kopiaprofile-rustfs
+    command:
+      - "server"
+      - "/data"
+      - "--address"
+      - "0.0.0.0:9000"
+      - "--console-enable"
+      - "--console-address"
+      - "0.0.0.0:9001"
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+  bootstrap:
+    # One-shot container: waits for rustfs, then creates the test bucket.
+    # Uses the official AWS CLI image to keep this docker-compose
+    # self-contained (no host-side dependencies).
+    image: amazon/aws-cli:2.17.0
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        echo "creating bucket kopiaprofile-test..."
+        aws --endpoint-url http://rustfs:9000 s3api create-bucket \
+            --bucket kopiaprofile-test --region us-east-1 || true
+        echo "verifying bucket..."
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket \
+            --bucket kopiaprofile-test
+        echo "bucket ready"
+    environment:
+      AWS_ACCESS_KEY_ID: rustfsadmin
+      AWS_SECRET_ACCESS_KEY: rustfsadmin-secret
+      AWS_DEFAULT_REGION: us-east-1
+    restart: "no"
+
+volumes:
+  rustfs-data:

@@ -1,0 +1,88 @@
+version: "1"
+
+global:
+  default-config: true
+  kopia-binary: /usr/local/bin/kopia
+  kopia-config-dir: ~/.config/kopia
+  log-level: info
+  force-inactive-lock: true
+
+groups:
+  full-backup:
+    description: "Run all nightly profiles"
+    profiles: [ home, srv ]
+    group-continue-error: true
+
+profiles:
+  # Base profile: every other profile inherits from this.
+  base:
+    description: "Common base for all nightly backups"
+    initialize: true
+    quiet: false
+    verbose: false
+    repository:
+      type: s3
+      bucket: my-company-backups
+      endpoint: s3.eu-central-1.amazonaws.com
+      region: eu-central-1
+      prefix: "{{ .Profile.Name }}"
+      object-lock:
+        # S3 bucket MUST be created with Object-Lock enabled and a
+        # DefaultRetention of e.g. 30 days, COMPLIANCE mode. The
+        # `kopia maintenance set --extend-object-locks=true` call is
+        # issued by `kopiaprofile <p> init` so that full maintenance
+        # extends per-blob retention automatically.
+        mode: compliance
+        retention-period: 720h
+        extend-on-maintenance: true
+    password:
+      source: keyring
+      keyring-service: kopiaprofile
+    env:
+      AWS_REGION: "{{ .Env.AWS_REGION | default \"eu-central-1\" }}"
+    run-before: "/usr/local/bin/backup-prepare.sh"
+    run-after:  "/usr/local/bin/backup-finish.sh"
+    run-after-fail: "/usr/local/bin/alert-fail.sh {{ .Profile.Name }}"
+    run-finally:    "/usr/local/bin/cleanup.sh"
+    cache-dir: ~/.cache/kopia
+    lock:
+      path: "~/.cache/kopiaprofile/{{ .Profile.Name }}.lock"
+      force-inactive: true
+    verify:
+      files-percent: 1.0
+      parallel: 4
+
+  home:
+    inherit: base
+    description: "Nightly backup of /home"
+    backup:
+      sources: [ /home/alice, /home/bob ]
+      exclude:
+        - "*.tmp"
+        - "**/node_modules"
+        - "**/.cache"
+      tags:
+        - nightly
+        - "host:{{ .Hostname }}"
+        - "env:prod"
+      parallel: 4
+      ignore-identical: true
+    retention:
+      keep-latest: 5
+      keep-daily:  7
+      keep-weekly: 4
+      keep-monthly: 6
+      keep-annual: 2
+
+  srv:
+    inherit: base
+    description: "Nightly backup of the application server"
+    backup:
+      sources: [ /srv/app, /var/lib/postgres ]
+      tags: [ "srv", "host:{{ .Hostname }}" ]
+      stdin-file: /var/tmp/pg-dump-latest
+    retention:
+      keep-latest: 10
+      keep-hourly: 24
+      keep-daily: 30
+      keep-weekly: 12
