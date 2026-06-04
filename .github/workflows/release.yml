@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must exist on the default branch)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+  packages: write
+
+jobs:
+  # ----------------------------------------------------------------
+  # 1. Update CHANGELOG.md by running git-chglog between the previous
+  #    tag and the new one, and open a PR if needed.
+  # ----------------------------------------------------------------
+  changelog:
+    name: Update CHANGELOG
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.detect.outputs.should_release }}
+      version: ${{ steps.detect.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Detect tag
+        id: detect
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          echo "Detected tag: ${TAG}"
+          VERSION="${TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Install git-chglog
+        run: go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+
+      - name: Generate CHANGELOG.md
+        env:
+          TAG: ${{ steps.detect.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAG}" ]]; then
+            echo "::error::TAG env var is empty"
+            exit 1
+          fi
+          # Render the full changelog, then split into the part
+          # before "<!-- git-chglog LATEST-START -->" and the part
+          # between LATEST-START / LATEST-END.
+          git-chglog "${TAG}" > /tmp/CHANGELOG.new
+          # Update CHANGELOG.md: keep everything before LATEST-START,
+          # insert the new version block, keep everything after
+          # LATEST-END.
+          awk '
+            BEGIN { state = "head" }
+            /<!-- git-chglog LATEST-START -->/ {
+              print
+              state = "body"
+              next
+            }
+            /<!-- git-chglog LATEST-END -->/ {
+              state = "tail"
+            }
+            state == "head" { print > "/tmp/CHANGELOG.head" }
+            state == "body" { print > "/tmp/CHANGELOG.body" }
+            state == "tail" { print > "/tmp/CHANGELOG.tail" }
+          ' CHANGELOG.md
+
+          {
+            cat /tmp/CHANGELOG.head
+            echo "<!-- git-chglog LATEST-START -->"
+            echo ""
+            cat /tmp/CHANGELOG.body
+            echo "<!-- git-chglog LATEST-END -->"
+            echo ""
+            cat /tmp/CHANGELOG.tail
+          } > CHANGELOG.md
+
+      - name: Commit CHANGELOG
+        run: |
+          git config user.name "kopiaprofile-bot"
+          git config user.email "kopiaprofile-bot@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "CHANGELOG.md unchanged"
+          else
+            git commit -m "docs(changelog): update for v${{ steps.detect.outputs.version }}"
+            git push
+          fi
+
+  # ----------------------------------------------------------------
+  # 2. Build and publish artefacts via GoReleaser.
+  # ----------------------------------------------------------------
+  release:
+    name: Publish release
+    needs: changelog
+    if: needs.changelog.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install cyclonedx-gomod
+        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Discord (optional)
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "kopiaprofile release failed"
+          description: "The release workflow for ${{ github.ref_name }} failed. See the run for details."
+          url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        continue-on-error: true

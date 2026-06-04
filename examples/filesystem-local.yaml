@@ -1,0 +1,22 @@
+version: "1"
+
+profiles:
+  local:
+    description: "Filesystem-only backup for testing"
+    initialize: true
+    repository:
+      type: filesystem
+      path: /var/lib/kopiaprofile/repo
+    password:
+      source: file
+      file: /etc/kopiaprofile/local.key
+    backup:
+      sources: [ /home/alice ]
+      tags: [ "local", "host:{{ .Hostname }}" ]
+    retention:
+      keep-latest: 3
+      keep-daily: 7
+    verify:
+      files-percent: 5.0
+    lock:
+      path: "/tmp/kopiaprofile-local.lock"

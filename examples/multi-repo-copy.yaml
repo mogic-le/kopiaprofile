@@ -1,0 +1,78 @@
+# Multi-Repository-Copy example
+# =============================
+# Demonstrates the `copy:` block, which mirrors the `kopia repository
+# sync-to` command. The profile's primary `repository:` block is the
+# TARGET; the `copy.source` block is the SOURCE.
+#
+# Invoke with:
+#   kopiaprofile home copy
+#
+# This will:
+#   1. Connect to the source repository (with `copy.source.password`
+#      if a different password is configured).
+#   2. Run `kopia repository sync-to <target>` with the copy flags
+#      from the `copy:` block.
+#   3. Disconnect (next `kopia` invocation will use the default repo).
+
+default-base: &common
+  kopia-binary: kopia
+  cache-dir: /var/tmp/kopia-cache
+  run-before: echo "starting copy at $(date)"
+  run-after:  echo "copy finished at $(date)"
+
+profiles:
+  # TARGET profile. Repository is the bucket we copy INTO.
+  home:
+    <<: *common
+    description: Primary S3 backup target
+    repository:
+      type: s3
+      bucket: kopiaprofile-primary
+      endpoint: s3.amazonaws.com
+      prefix: home
+      access-key: AKIA-PRIMARY
+      secret-access-key: "${KOPIA_TARGET_SECRET}"
+    password:
+      source: env
+      env: KOPIA_TARGET_PASSWORD
+    copy:
+      source:
+        # SOURCE repository. We connect to it first, then sync-to
+        # the profile's primary `repository:`.
+        type: s3
+        bucket: kopiaprofile-archive
+        endpoint: s3.archive.example.com
+        prefix: legacy
+        access-key: AKIA-ARCHIVE
+        secret-access-key: "${KOPIA_SOURCE_SECRET}"
+        disable-tls: false
+        password:
+          source: env
+          env: KOPIA_SOURCE_PASSWORD
+      all-snapshots: true
+      allow-overwrite: false
+      skip-identical: true
+      parallel: 4
+      progress-interval: 30s
+
+  # A simpler variant: source is a local filesystem, target is S3.
+  cold-archive:
+    description: Mirror the local archive to S3 cold storage
+    repository:
+      type: s3
+      bucket: cold-storage
+      endpoint: s3.cold.example.com
+      prefix: archives
+      access-key: AKIA-COLD
+      secret-access-key: "${KOPIA_COLD_SECRET}"
+    password:
+      source: env
+      env: KOPIA_COLD_PASSWORD
+    copy:
+      source:
+        type: filesystem
+        path: /var/lib/kopia/local
+        password:
+          source: file
+          file: /root/.secrets/kopia-local
+      parallel: 2

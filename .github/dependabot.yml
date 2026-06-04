@@ -1,0 +1,39 @@
+# Dependabot configuration for kopiaprofile
+# https://docs.github.com/en/code-security/dependabot/dependabot-security-updates/configuring-dependabot-security-updates
+#
+# We track: GitHub Actions, Go modules, and the rustfs image used
+# in integration tests.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      actions-minor:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      go-minor:
+        update-types: ["minor", "patch"]
+    # Major bumps of the Go toolchain are manual: we test against a
+    # specific version pinned in CI (.github/workflows/*.yml).
+    ignore:
+      - dependency-name: "go"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "docker"
+    directory: "/testdata"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      docker-minor:
+        update-types: ["minor", "patch"]

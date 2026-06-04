@@ -1,0 +1,35 @@
+# Binaries
+/kopiaprofile
+/kopiaprofile-*
+/dist/
+/build/
+
+# Test artefacts
+*.test
+*.out
+coverage.txt
+coverage.html
+.profile.coverage
+.profile.covdata
+*.coverprofile
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local kopia artefacts (integration tests)
+/tmp/kp-*
+/tmp/kopia.config
+/tmp/pwd
+/tmp/repo-fs-repro
+/tmp/cache-fs-repro
+/kopia.config
+
+# Integration-test temp dir
+kopiaprofile-int-*
