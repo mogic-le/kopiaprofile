@@ -82,19 +82,68 @@ jobs:
         run: |
           set -euo pipefail
           # Install kopia 0.23 (the version we test against).
-          case "$(uname -s)" in
-            Linux)  KOPIA_OS=linux  ;;
-            Darwin) KOPIA_OS=darwin ;;
-            MINGW*|MSYS*|CYGWIN*) KOPIA_OS=windows ;;
-            *) echo "unsupported OS: $(uname -s)"; exit 1 ;;
+          # kopia's release-asset naming convention is unusual:
+          #   Linux:   kopia-VERSION-linux-{x64,arm,arm64}.tar.gz
+          #   macOS:   kopia-VERSION-macOS-{x64,arm64,universal}.{tar.gz,dmg}
+          #   Windows: kopia-VERSION-windows-x64.zip
+          # We only fetch the headless (tar.gz / zip) variants
+          # because the workflow is non-interactive.
+          UNAME_S="$(uname -s)"
+          UNAME_M="$(uname -m)"
+          case "$UNAME_S" in
+            Linux)
+              KOPIA_OS=linux
+              case "$UNAME_M" in
+                x86_64)  KOPIA_ARCH=x64   ;;
+                aarch64) KOPIA_ARCH=arm64 ;;
+                armv7l|armv6l) KOPIA_ARCH=arm ;;
+                *) echo "unsupported Linux arch: $UNAME_M"; exit 1 ;;
+              esac
+              KOPIA_EXT=tar.gz
+              ;;
+            Darwin)
+              KOPIA_OS=macOS
+              case "$UNAME_M" in
+                x86_64)  KOPIA_ARCH=x64   ;;
+                arm64)   KOPIA_ARCH=arm64 ;;
+                *) echo "unsupported macOS arch: $UNAME_M"; exit 1 ;;
+              esac
+              KOPIA_EXT=tar.gz
+              ;;
+            MINGW*|MSYS*|CYGWIN*)
+              KOPIA_OS=windows
+              KOPIA_ARCH=x64
+              KOPIA_EXT=zip
+              ;;
+            *)
+              echo "unsupported OS: $UNAME_S"; exit 1
+              ;;
           esac
           if ! command -v kopia >/dev/null 2>&1; then
+            ASSET="kopia-0.23.0-${KOPIA_OS}-${KOPIA_ARCH}.${KOPIA_EXT}"
+            echo "Downloading $ASSET"
             curl -fsSL \
-              "https://github.com/kopia/kopia/releases/download/v0.23.0/kopia-0.23.0-${KOPIA_OS}-amd64.zip" \
-              -o /tmp/kopia.zip
-            unzip -o /tmp/kopia.zip -d /tmp/kopia-bin
-            sudo mv /tmp/kopia-bin/kopia /usr/local/bin/kopia 2>/dev/null \
-              || mv /tmp/kopia-bin/kopia /usr/local/bin/kopia
+              "https://github.com/kopia/kopia/releases/download/v0.23.0/${ASSET}" \
+              -o /tmp/kopia.${KOPIA_EXT}
+            rm -rf /tmp/kopia-bin
+            mkdir -p /tmp/kopia-bin
+            case "$KOPIA_EXT" in
+              tar.gz)
+                tar -xzf /tmp/kopia.tar.gz -C /tmp/kopia-bin --strip-components=1
+                ;;
+              zip)
+                unzip -o /tmp/kopia.zip -d /tmp/kopia-bin
+                ;;
+            esac
+            if [ -f /tmp/kopia-bin/kopia ]; then
+              INSTALL_BIN=/tmp/kopia-bin/kopia
+            elif [ -f /tmp/kopia-bin/kopia.exe ]; then
+              INSTALL_BIN=/tmp/kopia-bin/kopia.exe
+            else
+              echo "kopia binary not found in archive"; ls -R /tmp/kopia-bin; exit 1
+            fi
+            sudo mv "$INSTALL_BIN" /usr/local/bin/kopia 2>/dev/null \
+              || mv "$INSTALL_BIN" /usr/local/bin/kopia
             kopia --version
           fi
 
