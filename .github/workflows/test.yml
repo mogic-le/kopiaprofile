@@ -48,8 +48,9 @@ jobs:
         run: ./kopiaprofile version
 
       - name: Smoke test (skeleton config)
+        shell: bash
         run: |
-          cp ./kopiaprofile /tmp/kp-smoke 2>/dev/null || cp ./kopiaprofile ./kopiaprofile-smoke
+          set -euo pipefail
           ./kopiaprofile init /tmp/smoke.yaml --force --format=yaml
           test -s /tmp/smoke.yaml
           ./kopiaprofile display --config /tmp/smoke.yaml 2>&1 | head -20
@@ -75,6 +76,14 @@ jobs:
         # rustfs container and exercises S3 + multi-repo-copy) is
         # meant to be run locally with `make integration`. See
         # docs/development.md for why.
+        #
+        # Skipped on Windows: the install step uses `sudo` and
+        # `/usr/local/bin`, neither of which exist on a stock
+        # windows-latest runner. The skeleton-config smoke test
+        # above already covers the cross-platform code paths; the
+        # full E2E just adds kopia's argv round-trip on top, which
+        # is fully covered by the linux+macos jobs in the matrix.
+        if: runner.os != 'Windows'
         shell: bash
         env:
           KOPIA_PASSWORD: sm0ke-test-pw
@@ -110,11 +119,6 @@ jobs:
               esac
               KOPIA_EXT=tar.gz
               ;;
-            MINGW*|MSYS*|CYGWIN*)
-              KOPIA_OS=windows
-              KOPIA_ARCH=x64
-              KOPIA_EXT=zip
-              ;;
             *)
               echo "unsupported OS: $UNAME_S"; exit 1
               ;;
@@ -137,13 +141,10 @@ jobs:
             esac
             if [ -f /tmp/kopia-bin/kopia ]; then
               INSTALL_BIN=/tmp/kopia-bin/kopia
-            elif [ -f /tmp/kopia-bin/kopia.exe ]; then
-              INSTALL_BIN=/tmp/kopia-bin/kopia.exe
             else
               echo "kopia binary not found in archive"; ls -R /tmp/kopia-bin; exit 1
             fi
-            sudo mv "$INSTALL_BIN" /usr/local/bin/kopia 2>/dev/null \
-              || mv "$INSTALL_BIN" /usr/local/bin/kopia
+            sudo mv "$INSTALL_BIN" /usr/local/bin/kopia || mv "$INSTALL_BIN" /usr/local/bin/kopia
             kopia --version
           fi
 
