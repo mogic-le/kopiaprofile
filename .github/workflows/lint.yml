@@ -21,9 +21,13 @@ jobs:
           go-version: "1.25"
           cache: true
       - name: Run linter
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.61.0
+          # v2.x supports Go 1.23+. The latest v1.x was built with
+          # Go 1.23 and refuses to lint projects targeting a higher
+          # Go version in go.mod (we're on 1.25). Track the latest
+          # v2.x release.
+          version: v2.12.2
           args: --timeout=5m
 
   govulncheck:
