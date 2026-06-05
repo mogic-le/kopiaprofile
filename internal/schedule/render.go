@@ -40,9 +40,9 @@ func (c Config) RenderCrontab() (string, error) {
 			DayOfWeek:  joinField(cs.DayOfWeek),
 			Command:    cmd,
 		}
-		b.WriteString(fmt.Sprintf("%-3s %-3s %-3s %-3s %-3s %s\n",
+		fmt.Fprintf(&b, "%-3s %-3s %-3s %-3s %-3s %s\n",
 			entry.Minute, entry.Hour, entry.DayOfMonth, entry.Month,
-			entry.DayOfWeek, entry.Command))
+			entry.DayOfWeek, entry.Command)
 	}
 	return b.String(), nil
 }
@@ -295,7 +295,7 @@ func renderLaunchdPlist(label, cmd string, cs CronSchedule, workdir string) stri
 	// day-of-month fall through).
 	for _, h := range cs.Hour {
 		for _, m := range cs.Minute {
-			intervals.WriteString(fmt.Sprintf("\t<dict>\n\t\t<key>Minute</key>\n\t\t<integer>%d</integer>\n\t\t<key>Hour</key>\n\t\t<integer>%d</integer>\n\t</dict>\n", m, h))
+			fmt.Fprintf(&intervals, "\t<dict>\n\t\t<key>Minute</key>\n\t\t<integer>%d</integer>\n\t\t<key>Hour</key>\n\t\t<integer>%d</integer>\n\t</dict>\n", m, h)
 		}
 	}
 	plistTpl := `<?xml version="1.0" encoding="UTF-8"?>

@@ -120,8 +120,12 @@ func TestRenderSystemd(t *testing.T) {
 	if !strings.Contains(svc, "User=backup") {
 		t.Errorf("service: %q", svc)
 	}
-	if !strings.Contains(svc, "OnCalendar=*-*-* 03:00:00") {
-		// Timer file is separate
+	// The .service file intentionally does NOT contain OnCalendar;
+	// the timer (paired via OnCalendar + Persistent=true) drives the
+	// schedule. Verify that the service file is timer-driven and
+	// doesn't carry its own schedule.
+	if strings.Contains(svc, "OnCalendar=") {
+		t.Errorf("service should be timer-driven, not carry OnCalendar itself: %q", svc)
 	}
 	timer, ok := files["kopiaprofile-home-nightly.timer"]
 	if !ok {

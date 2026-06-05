@@ -1,10 +1,7 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -389,9 +386,12 @@ func mergeProfiles(base, other Profile) Profile {
 		if childBackup.FailFast {
 			merged.FailFast = true
 		}
-		// SendSnapshotReport default-true semantics: if child says
-		// false, the result is false. Otherwise inherit parent's.
-		merged.SendSnapshotReport = merged.SendSnapshotReport && !(!childBackup.SendSnapshotReport && childBackup.snapshotReportExplicitlySet())
+		// SendSnapshotReport default-true semantics. The parent's
+		// `true` is the implicit default; only an explicit `false`
+		// in the child overrides it.
+		if childBackup.snapshotReportExplicitlySet() {
+			merged.SendSnapshotReport = childBackup.SendSnapshotReport
+		}
 		// List fields combined by merge strategy.
 		merged.Sources = mergeLists(base.Backup.Sources, childBackup.Sources, ParseListMergeMode(childBackup.SourcesMerge))
 		merged.Exclude = mergeLists(base.Backup.Exclude, childBackup.Exclude, ParseListMergeMode(childBackup.ExcludeMerge))
@@ -706,22 +706,6 @@ func (f *File) GroupNames() []string {
 	}
 	sortStrings(out)
 	return out
-}
-
-// resolveConfigPath is exposed for tests; it expands ~ and makes the path
-// absolute relative to the working directory.
-func resolveConfigPath(p string) (string, error) {
-	if p == "" {
-		return "", errors.New("empty config path")
-	}
-	if p[0] == '~' {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		p = filepath.Join(home, p[1:])
-	}
-	return filepath.Abs(p)
 }
 
 // We import yaml only to keep the package self-contained for downstream

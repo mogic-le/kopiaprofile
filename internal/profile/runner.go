@@ -194,7 +194,10 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	hookErr := runHook(ctx, opts, PhaseBefore, opts.Profile.RunBefore, res)
 	if hookErr != nil {
 		res.Err = hookErr
-		runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res)
+		// run-finally is best-effort: if the run-before hook failed
+		// there is no point in surfacing a second error to the user,
+		// the failure of the original hook is the actionable one.
+		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
 		return res, res.Err
 	}
 
@@ -215,15 +218,19 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	})
 	if err != nil {
 		res.Err = err
-		runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res)
+		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
 		return res, res.Err
 	}
-	os.Stderr.WriteString("DEBUG argv: " + r.Command() + "\n")
+	opts.Logger.Debug("kopia argv", "command", r.Command())
+
 	if opts.DryRun {
 		opts.Logger.Info("dry-run: would execute", "argv", r.Command())
 		res.Kopia = &wrapper.Result{ExitCode: 0}
-		runHook(ctx, opts, PhaseAfter, opts.Profile.RunAfter, res)
-		runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res)
+		// runHook failure here is logged but does not change the
+		// already-successful DryRun result. Errors from runHook
+		// are surfaced through the monitor status file.
+		_ = runHook(ctx, opts, PhaseAfter, opts.Profile.RunAfter, res)     //nolint:errcheck
+		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
 		return res, nil
 	}
 
@@ -232,13 +239,20 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	if kerr != nil {
 		res.Err = kerr
 		res.ExitCode = kopiaRes.ExitCode
-		runHook(ctx, opts, PhaseAfterFail, opts.Profile.RunAfterFail, res)
-		runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res)
+		// Same reasoning as the run-before path: a failure in
+		// run-after-fail or run-finally is best-effort and does
+		// not change the user-facing kopia error.
+		_ = runHook(ctx, opts, PhaseAfterFail, opts.Profile.RunAfterFail, res) //nolint:errcheck
+		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res)     //nolint:errcheck
 		return res, res.Err
 	}
 
-	runHook(ctx, opts, PhaseAfter, opts.Profile.RunAfter, res)
-	runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res)
+	// Success path: run-after and run-finally are best-effort. We
+	// do not want a misbehaving notification script to flip a
+	// successful run into an error result; failures are recorded
+	// in the monitor status file via runHook's own logging.
+	_ = runHook(ctx, opts, PhaseAfter, opts.Profile.RunAfter, res)     //nolint:errcheck
+	_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
 	return res, nil
 }
 

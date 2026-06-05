@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -175,8 +176,13 @@ func TestExpandTemplates(t *testing.T) {
 	if out.Repository.Prefix[:2] != "p-" {
 		t.Errorf("prefix not rendered: %q", out.Repository.Prefix)
 	}
-	if out.Repository.Prefix[len(out.Repository.Prefix)-2:] != p.Name[:2] {
-		// crude check; just ensure .Profile.Name was substituted
+	// The template was "p-{{ .Profile.Name }}-h-{{ .Hostname }}";
+	// after rendering both substitutions must be present. We don't
+	// pin the exact suffix because .Hostname is host-dependent and
+	// may have any length, but the profile name should appear as a
+	// contiguous substring right after the literal "p-" prefix.
+	if want := "p-" + p.Name + "-h-"; !strings.Contains(out.Repository.Prefix, want) {
+		t.Errorf("prefix %q does not contain %q (substitutions broken)", out.Repository.Prefix, want)
 	}
 	if filepath.Base(out.Lock.Path) != p.Name+".lock" {
 		t.Errorf("lock path: got %q", out.Lock.Path)

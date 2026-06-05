@@ -27,17 +27,6 @@ import (
 // build of kopiaprofile.
 const FormatVersion = "1"
 
-// Top-level keys used in the YAML document.
-const (
-	keyVersion  = "version"
-	keyGlobal   = "global"
-	keyProfiles = "profiles"
-	keyGroups   = "groups"
-	keyIncludes = "includes"
-	keyInherit  = "inherit"
-	keyDefault  = "default-base"
-)
-
 // File represents the parsed (but not yet resolved) configuration file as it
 // sits on disk. Inheritance is resolved in Resolve().
 type File struct {
@@ -417,16 +406,6 @@ func (f *File) merge(other *File) {
 
 // Path returns the absolute path of the loaded configuration file.
 func (f *File) Path() string { return f.path }
-
-// writeRawYAML is a small helper used by `init` to write a fresh skeleton.
-// Kept here (and not in cmd) so the format version is centralised.
-func writeRawYAML(path string, in []byte) error {
-	cleaned := filepath.Clean(path)
-	if err := os.MkdirAll(filepath.Dir(cleaned), 0o750); err != nil {
-		return err
-	}
-	return os.WriteFile(cleaned, in, 0o600)
-}
 
 // expandPath resolves ~ and relative paths against the parent config file.
 func expandPath(p, parentFile string) string {

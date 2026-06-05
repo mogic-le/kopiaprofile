@@ -31,5 +31,11 @@ func TestAcquireAndRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l2.Release()
+	// Release on the test goroutine instead of via defer so we can
+	// fail the test if release fails. (Defer silently swallows
+	// errors; that hid a flock-incompatibility regression during
+	// the BSD-port work.)
+	if err := l2.Release(); err != nil {
+		t.Errorf("releasing l2: %v", err)
+	}
 }

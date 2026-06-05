@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
-	"github.com/mogic-le/kopiaprofile/internal/monitor"
 )
 
 // newMonitorCmd implements `kopiaprofile monitor`. The subcommands:
@@ -91,10 +89,4 @@ func defaultStatusDir() string {
 	return filepath.Join(home, ".cache", "kopiaprofile", "monitor")
 }
 
-// buildMonitorManager turns a profile's monitor config into a
-// monitor.Manager. The global default file (if any) is added first,
-// then the per-profile one — so the per-profile file wins on
-// duplicate path.
-func buildMonitorManager(profiles ...monitor.Config) *monitor.Manager {
-	return monitor.New(profiles...)
-}
+

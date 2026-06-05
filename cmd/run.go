@@ -296,9 +296,11 @@ func errorf(format string, args ...interface{}) error {
 }
 
 // Print writes a line to stdout. Centralised to make it easy to swap
-// for a buffered writer in tests.
+// for a buffered writer in tests. The Fprintf error is intentionally
+// ignored: a broken stdout is a non-actionable runtime error and
+// would only obscure the real exit code of the underlying command.
 var Print = func(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stdout, format+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stdout, format+"\n", args...) //nolint:errcheck
 }
 
 // _ is used to keep "io" imported when no helper uses it directly yet

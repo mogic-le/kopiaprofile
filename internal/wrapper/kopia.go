@@ -303,19 +303,6 @@ func HasSubcommandType(command []string) bool {
 	return false
 }
 
-// removeFlag drops every entry in args that starts with prefix. Used
-// to strip --type from buildProfileFlags output when the subcommand
-// already takes a TYPE positional.
-func removeFlag(args []string, prefix string) []string {
-	out := make([]string, 0, len(args))
-	for _, a := range args {
-		if !strings.HasPrefix(a, prefix) {
-			out = append(out, a)
-		}
-	}
-	return out
-}
-
 // BuildSourceConnectArgs returns the argv for `kopia repository
 // connect <type> ...flags` to open the *source* repository of a
 // multi-repo-copy profile. The returned argv is suitable as the
