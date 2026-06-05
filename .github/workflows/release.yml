@@ -49,10 +49,23 @@ jobs:
       - name: Install cyclonedx-gomod
         run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
 
-      # `gh` is not preinstalled on github-hosted ubuntu runners; we
-      # only need it for the post-publish notes edit below.
+      # Install the GitHub CLI. ubuntu-latest runners do not ship
+      # `gh` and the cli/cli source repo is not a GitHub Action
+      # (no action.yml), so we cannot use `uses: cli/cli@…`.
+      # Download the prebuilt .deb from the latest release and
+      # install it with dpkg. The GH_TOKEN + GITHUB_TOKEN below is
+      # automatically picked up by `gh` for the subsequent
+      # `gh release edit` call.
       - name: Install GitHub CLI
-        uses: cli/cli@v2.93.0
+        env:
+          GH_VERSION: "2.93.0"
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/gh.deb \
+            "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.deb"
+          sudo dpkg -i /tmp/gh.deb
+          rm -f /tmp/gh.deb
+          gh --version
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
