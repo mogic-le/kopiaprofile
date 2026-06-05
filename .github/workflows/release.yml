@@ -117,13 +117,3 @@ jobs:
             "$VERSION" "$BODY")
           printf '%s\n' "$NOTES" > /tmp/release-notes.md
           gh release edit "$TAG" --notes-file /tmp/release-notes.md
-
-      - name: Notify Discord (optional)
-        if: failure()
-        uses: sarisia/actions-status-discord@v1
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          title: "kopiaprofile release failed"
-          description: "The release workflow for ${{ github.ref_name }} failed. See the run for details."
-          url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        continue-on-error: true

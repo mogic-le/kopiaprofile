@@ -114,11 +114,12 @@ nfpms:
       resticprofile. Single config file, many profiles, inheritance,
       hooks, locks and secret-aware logging.
     license: GPL-3.0
-    contents:
-      - src: ./manpages/kopiaprofile.1
-        dst: /usr/share/man/man1/kopiaprofile.1
-        file_info:
-          mode: 0644
+    # We deliberately do not ship a manpage yet. The CLI has
+    # structured --help output (cobra-built) and the README is the
+    # authoritative reference; a hand-written manpage is on the
+    # roadmap. Until then the .deb/.rpm/.apk install cleanly without
+    # one, and `man kopiaprofile` simply returns "No manual entry"
+    # (which is fine for an MVP).
     dependencies: []
 
 # Checksums for the release artefacts.
