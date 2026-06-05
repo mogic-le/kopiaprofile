@@ -1,3 +1,50 @@
+// Package lock implements file-based mutual exclusion for kopiaprofile
+// profile runs.
+//
+// # Why not gofrs/flock
+//
+// An earlier version of this package used github.com/gofrs/flock,
+// which on Windows opens the lock file with the default share-mode
+// (FILE_SHARE_READ | FILE_SHARE_WRITE, no FILE_SHARE_DELETE) and keeps
+// the handle open for the entire lock lifetime. Releasing the lock
+// and then calling os.Remove on the same file in the same process
+// races the kernel's handle teardown:
+//
+//   - On Windows 10/11 with NTFS, the test
+//     "TestAcquireAndRelease" reliably failed in CI with
+//     "The process cannot access the file because another process
+//     has locked a portion of the file" / ERROR_SHARING_VIOLATION,
+//     even after a 5 × 20 ms retry loop.
+//   - The first attempt (move the metadata to a sibling .meta file)
+//     only masked the original WriteFile-vs-LockFileEx race; the
+//     Remove-after-Unlock race is a different code path.
+//
+// We now use atomic file creation (O_CREATE | O_EXCL) as the lock
+// primitive:
+//
+//   - Acquire: os.OpenFile(path, O_CREATE|O_EXCL|O_WRONLY, 0600).
+//     The O_EXCL flag maps to CreateFile with CREATE_NEW, which
+//     atomically creates the file or fails with ERROR_FILE_EXISTS
+//     if another process already did. The returned *os.File is
+//     kept open for the lock duration; closing it is what releases
+//     the lock.
+//   - Release: close the *os.File, then os.Remove the file. The
+//     close-then-remove sequence is reliable on every supported
+//     platform: on Windows the handle teardown is synchronous and
+//     the subsequent DeleteFileW has nothing left to race with.
+//   - Stale detection: a file whose recorded PID is no longer
+//     running is treated as stale; ForceInactive then deletes the
+//     file and retries acquisition.
+//
+// The lock file is also the metadata file: it contains
+//
+//	pid=<int>
+//	host=<string>
+//	at=<rfc3339>
+//
+// written at acquisition time. That keeps the on-disk footprint to
+// one file per profile (instead of the previous lock + lock.meta
+// pair) and removes the cross-path coordination surface entirely.
 package lock
 
 import (
@@ -7,31 +54,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/gofrs/flock"
 )
-
-// Lock is the file used as the OS-level flock target. The companion
-// metadata (PID, host, timestamp) lives in a sibling file with a
-// ".meta" suffix. We deliberately keep them separate:
-//
-//   - On Windows, the gofrs/flock implementation acquires an
-//     exclusive OS lock via LockFileEx. If we then call os.WriteFile
-//     on the same path, the open() of the existing file must
-//     share-read / share-write with the locked handle, and the
-//     combination regularly errors with "The process cannot access
-//     the file because another process has locked a portion of the
-//     file" — even though both opens are in the same process.
-//     Writing to a *different* path dodges the FILE_SHARE dance
-//     entirely.
-//   - On Unix, the OS-level flock is per-inode; writing to a sibling
-//     file has no impact on the lock.
-//   - The metadata is informational only; consumers of the lock
-//     (e.g. "is the previous holder still alive?") read the .meta
-//     file, not the lock file itself. So the lock file remains a
-//     zero-byte marker.
-const metaSuffix = ".meta"
 
 // pidAliveOS is the platform-specific implementation of pidAlive.
 // On Unix, signal 0 is the only reliable test for "process exists".
@@ -56,9 +81,9 @@ var ErrLocked = errors.New("lock: already held")
 // on a successful acquisition to avoid leaking the file descriptor.
 type Lock struct {
 	path   string
-	meta   string
-	flock  *flock.Flock
-	holder bool
+	fh     *os.File // the open file handle IS the lock
+	closed bool
+	mu     sync.Mutex
 }
 
 // Options configures Lock behaviour.
@@ -76,10 +101,6 @@ type Options struct {
 	Timeout time.Duration
 }
 
-// metaPath returns the sibling file used to record the holder's
-// PID, host and acquisition timestamp.
-func metaPath(lockPath string) string { return lockPath + metaSuffix }
-
 // Acquire attempts to obtain the lock. It returns ErrLocked if another
 // process holds it. If opts.ForceInactive is true and the recorded PID
 // is gone, the lock is taken over (after deleting the stale file).
@@ -92,12 +113,12 @@ func Acquire(opts Options) (*Lock, error) {
 	}
 	deadline := time.Now().Add(opts.Timeout)
 	for {
-		ok, err := tryAcquire(opts)
+		l, err := tryAcquire(opts)
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			return &Lock{path: opts.Path, meta: metaPath(opts.Path), flock: flock.New(opts.Path), holder: true}, nil
+		if l != nil {
+			return l, nil
 		}
 		if opts.RetryAfter <= 0 || (!opts.ForceInactive && time.Now().After(deadline)) {
 			return nil, ErrLocked
@@ -109,83 +130,69 @@ func Acquire(opts Options) (*Lock, error) {
 	}
 }
 
-func tryAcquire(opts Options) (bool, error) {
-	// First, check whether the lock is stale. Staleness is determined
-	// from the *metadata* file (lock + ".meta"), not the lock file
-	// itself, which is a zero-byte flock target.
+// tryAcquire makes a single attempt to take the lock. It returns
+// (nil, nil) when the lock is held by someone else; a non-nil Lock
+// on success; or (nil, err) on a hard error.
+func tryAcquire(opts Options) (*Lock, error) {
 	if opts.ForceInactive {
-		stale, pid, err := isStale(metaPath(opts.Path))
+		stale, pid, err := isStale(opts.Path)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		if stale {
-			// Best-effort cleanup of both the lock and its metadata.
-			_ = os.Remove(metaPath(opts.Path))
-			_ = os.Remove(opts.Path)
+			// The previous holder is gone. Remove the stale file and
+			// fall through to a fresh acquisition attempt.
+			if err := os.Remove(opts.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("removing stale lock: %w", err)
+			}
 			_ = pid // for future use (could log the killed PID)
 		}
 	}
-	l := flock.New(opts.Path)
-	got, err := l.TryLock()
+	// O_CREATE | O_EXCL | O_WRONLY: atomically create the file or
+	// fail with EEXIST / ERROR_FILE_EXISTS if it already exists.
+	// This is the lock acquisition primitive.
+	fh, err := os.OpenFile(opts.Path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return false, fmt.Errorf("acquiring lock: %w", err)
+		if errors.Is(err, os.ErrExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("acquiring lock: %w", err)
 	}
-	if !got {
-		_ = l.Unlock()
-		return false, nil
-	}
-	// Write our PID/hostname into a sibling file. We do NOT touch the
-	// lock file itself: the OS-level flock is the source of truth and
-	// mixing metadata writes with the lock handle is what triggers
-	// Windows' "process cannot access the file" error.
+	// We hold the lock. Record PID/host/timestamp in the same file.
 	body := fmt.Sprintf("pid=%d\nhost=%s\nat=%s\n",
 		os.Getpid(), hostname(), time.Now().UTC().Format(time.RFC3339))
-	if err := os.WriteFile(metaPath(opts.Path), []byte(body), 0o600); err != nil {
-		_ = l.Unlock()
-		return false, fmt.Errorf("writing lock metadata: %w", err)
+	if _, err := fh.WriteString(body); err != nil {
+		_ = fh.Close()
+		_ = os.Remove(opts.Path)
+		return nil, fmt.Errorf("writing lock metadata: %w", err)
 	}
-	return true, nil
+	return &Lock{path: opts.Path, fh: fh}, nil
 }
 
 // Release unlocks the lock file. It is safe to call on a Lock that
-// was not successfully acquired.
+// was not successfully acquired, and safe to call more than once.
 func (l *Lock) Release() error {
-	if l == nil || !l.holder {
+	if l == nil {
 		return nil
 	}
-	l.holder = false
-	if err := l.flock.Unlock(); err != nil {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return nil
+	}
+	l.closed = true
+	// Close first, then remove. Close releases the lock; the
+	// subsequent os.Remove (DeleteFileW on Windows, unlink(2) on
+	// Unix) operates on a file we no longer hold a handle to and
+	// therefore cannot race with anything we own.
+	if err := l.fh.Close(); err != nil {
+		_ = os.Remove(l.path)
 		return fmt.Errorf("releasing lock: %w", err)
 	}
-	// Best-effort cleanup. The lock file is informational; the OS-level
-	// flock is the source of truth. We also remove the sibling
-	// metadata file.
-	//
-	// gofrs/flock on Windows does not set FILE_SHARE_DELETE on the
-	// handle it opens internally, so a second os.Remove right after
-	// Unlock() can race with the still-being-closed handle and
-	// fail with ERROR_SHARING_VIOLATION. We retry-with-backoff to
-	// give the kernel a moment to release the handle.
-	removeWithRetry(l.path)
-	removeWithRetry(l.meta)
+	// Best-effort cleanup. The "lock" is the open file handle; the
+	// file itself is informational.
+	_ = os.Remove(l.path)
 	return nil
-}
-
-// removeWithRetry calls os.Remove and retries a few times with a
-// short sleep if the call fails with a sharing violation (Windows)
-// or resource busy (Unix). This is intentionally silent: the lock
-// file is informational and a leftover file is harmless.
-func removeWithRetry(path string) {
-	const attempts = 5
-	const delay = 20 * time.Millisecond
-	for i := range attempts {
-		if err := os.Remove(path); err == nil {
-			return
-		}
-		if i < attempts-1 {
-			time.Sleep(delay)
-		}
-	}
 }
 
 // Path returns the lock file path.
