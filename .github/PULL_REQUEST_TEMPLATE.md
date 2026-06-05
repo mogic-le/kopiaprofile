@@ -1,9 +1,9 @@
 # Pull Request template for kopiaprofile
 #
 # We use Conventional Commits (https://www.conventionalcommits.org/)
-# for the title. The PR title (NOT the squash-merge commit message) is
-# what `git-chglog` parses to populate CHANGELOG.md and the GitHub
-# release notes.
+# for the title. The title (NOT the squash-merge commit message) is
+# used in the GitHub release notes; CHANGELOG.md is hand-maintained
+# by the maintainer at release time (see docs/release-process.md).
 
 ## What does this PR do?
 
@@ -25,10 +25,10 @@ Link to the issue it closes, or describe the motivation.
 ## Checklist
 
 - [ ] My code follows the project's style guidelines (`make fmt`)
-- [ ] I have added a newsfragment under `newsfragments/` OR updated
-      `CHANGELOG.md` manually (the release workflow will run
-      `git-chglog` and overwrite either way, but the manual entry
-      helps reviewers).
+- [ ] I have added an entry under `## [Unreleased]` in `CHANGELOG.md`
+      describing the user-visible change (the maintainer curates
+      the final section when cutting a release; the in-PR entry
+      helps reviewers and keeps the diff focused).
 - [ ] My commit messages follow Conventional Commits
       (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `build:`, …)
 - [ ] I have considered backwards compatibility and added a note in

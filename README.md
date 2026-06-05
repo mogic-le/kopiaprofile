@@ -554,32 +554,34 @@ make integration
 
 ## Release process
 
-Releases are fully automated via GitHub Actions
-([`.github/workflows/release.yml`](.github/workflows/release.yml))
-and driven by [Conventional Commits][cc] + [git-chglog][gc] +
-[GoReleaser v2][gr].
-
-[cc]: https://www.conventionalcommits.org/
-[gc]: https://github.com/git-chglog/git-chglog
-[gr]: https://goreleaser.com
-
-### Cutting a release
+Releases are driven by [Conventional Commits][cc] (for the PR title
+that goes into the release notes) and a hand-maintained
+[`CHANGELOG.md`](CHANGELOG.md) (Keep-a-Changelog style).
+[`goreleaser`][gr] builds and publishes the artefacts. The full
+release-checklist lives in
+[`docs/release-process.md`](docs/release-process.md); the short
+version:
 
 ```bash
-git checkout main && git pull --rebase
+# 1. Move the "Unreleased" section of CHANGELOG.md into a new
+#    "## [<version>] - <date>" block, and commit it on main.
+$EDITOR CHANGELOG.md
+git add CHANGELOG.md && git commit -m "docs: release 0.2.0"
+
+# 2. Tag the release.
 git tag -a 0.2.0 -m "feat: schedule renderer + monitoring"
-git push origin 0.2.0
+git push origin main 0.2.0
 ```
 
-The release workflow will then:
+The release workflow (`.github/workflows/release.yml`) will then:
 
-1. Render `CHANGELOG.md` from commits since the previous tag and
-   commit it back to `main`.
-2. Run `goreleaser release --clean` to build for every supported
+1. Run `goreleaser release --clean` to build for every supported
    OS/arch combination.
-3. Publish a GitHub release with the changelog notes, tarballs,
-   zips, `.deb`/`.rpm`/`.apk` packages, a SHA256SUMS file (signed
-   with cosign keyless) and a CycloneDX SBOM.
+2. Copy the body of the new `CHANGELOG.md` section into the GitHub
+   release notes.
+3. Publish tarballs, zips, `.deb`/`.rpm`/`.apk` packages, a
+   `SHA256SUMS` file (signed with cosign keyless) and a CycloneDX
+   SBOM.
 
 ### Commit message format
 
@@ -589,14 +591,11 @@ fix(schedule): handle 5-field cron with implicit day-of-week
 docs: add Multi-Repo-Copy example
 refactor(wrapper): split connection-flag emission per subcommand
 test(profile): add unit test for hooks
-ci: bump golangci-lint to v1.61.0
+ci: bump golangci-lint to v2.12.2
 ```
 
 Breaking changes are denoted with `!` and a `BREAKING CHANGE:` footer.
-
-Only `feat:`, `fix:`, `perf:`, `refactor:`, `revert:`, `build:` and
-`docs:` commits appear in the rendered changelog; `test:`, `ci:`,
-`chore:` and `style:` are filtered out.
+The PR title is what lands in the release-notes header.
 
 ## License
 

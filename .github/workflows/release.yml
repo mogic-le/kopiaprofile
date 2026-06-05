@@ -19,104 +19,16 @@ permissions:
 
 jobs:
   # ----------------------------------------------------------------
-  # 1. Update CHANGELOG.md by running git-chglog between the previous
-  #    tag and the new one, and open a PR if needed.
-  # ----------------------------------------------------------------
-  changelog:
-    name: Update CHANGELOG
-    runs-on: ubuntu-latest
-    outputs:
-      should_release: ${{ steps.detect.outputs.should_release }}
-      version: ${{ steps.detect.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Detect tag
-        id: detect
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
-          else
-            TAG="${{ github.event.inputs.tag }}"
-          fi
-          echo "Detected tag: ${TAG}"
-          VERSION="${TAG#v}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-          cache: true
-
-      - name: Install git-chglog
-        run: go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
-
-      - name: Generate CHANGELOG.md
-        env:
-          TAG: ${{ steps.detect.outputs.version }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${TAG}" ]]; then
-            echo "::error::TAG env var is empty"
-            exit 1
-          fi
-          # Render the full changelog, then split into the part
-          # before "<!-- git-chglog LATEST-START -->" and the part
-          # between LATEST-START / LATEST-END.
-          git-chglog "${TAG}" > /tmp/CHANGELOG.new
-          # Update CHANGELOG.md: keep everything before LATEST-START,
-          # insert the new version block, keep everything after
-          # LATEST-END.
-          awk '
-            BEGIN { state = "head" }
-            /<!-- git-chglog LATEST-START -->/ {
-              print
-              state = "body"
-              next
-            }
-            /<!-- git-chglog LATEST-END -->/ {
-              state = "tail"
-            }
-            state == "head" { print > "/tmp/CHANGELOG.head" }
-            state == "body" { print > "/tmp/CHANGELOG.body" }
-            state == "tail" { print > "/tmp/CHANGELOG.tail" }
-          ' CHANGELOG.md
-
-          {
-            cat /tmp/CHANGELOG.head
-            echo "<!-- git-chglog LATEST-START -->"
-            echo ""
-            cat /tmp/CHANGELOG.body
-            echo "<!-- git-chglog LATEST-END -->"
-            echo ""
-            cat /tmp/CHANGELOG.tail
-          } > CHANGELOG.md
-
-      - name: Commit CHANGELOG
-        run: |
-          git config user.name "kopiaprofile-bot"
-          git config user.email "kopiaprofile-bot@users.noreply.github.com"
-          git add CHANGELOG.md
-          if git diff --cached --quiet; then
-            echo "CHANGELOG.md unchanged"
-          else
-            git commit -m "docs(changelog): update for v${{ steps.detect.outputs.version }}"
-            git push
-          fi
-
-  # ----------------------------------------------------------------
-  # 2. Build and publish artefacts via GoReleaser.
+  # Build and publish artefacts via GoReleaser.
+  #
+  # CHANGELOG.md is maintained by hand (Keep-a-Changelog style) and
+  # committed to main like any other file; we don't run git-chglog
+  # in the release workflow. The GitHub release notes are sourced
+  # from CHANGELOG.md directly (see "Set release notes from
+  # CHANGELOG.md" below).
   # ----------------------------------------------------------------
   release:
     name: Publish release
-    needs: changelog
-    if: needs.changelog.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -137,6 +49,11 @@ jobs:
       - name: Install cyclonedx-gomod
         run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
 
+      # `gh` is not preinstalled on github-hosted ubuntu runners; we
+      # only need it for the post-publish notes edit below.
+      - name: Install GitHub CLI
+        uses: cli/cli@v2
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -144,6 +61,49 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Replace the auto-generated release notes (which GoReleaser
+      # would otherwise fill from `git log` per `.goreleaser.yml`'s
+      # `changelog:` block) with the hand-written body of
+      # CHANGELOG.md. We extract the first `## [...]` section after
+      # the heading "Changelog" — that's the entry for this release.
+      # If the extraction fails for any reason, we leave the existing
+      # notes untouched instead of failing the whole release.
+      - name: Set release notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          # Pull the body of the first `## [<version>]` section from
+          # CHANGELOG.md, plus a header line. We don't try to be
+          # clever about Keep-a-Changelog's "Unreleased" section —
+          # the maintainer should have moved it into the new
+          # version block before tagging.
+          BODY=$(awk -v ver="$VERSION" '
+            BEGIN { found = 0; in_section = 0 }
+            /^## \[/ {
+              if (in_section) { exit }
+              if (index($0, "[" ver "]") > 0) {
+                found = 1
+                in_section = 1
+                print
+                next
+              }
+            }
+            in_section { print }
+            END { exit !found }
+          ' CHANGELOG.md) || {
+            echo "::warning::No CHANGELOG.md entry for ${VERSION}; keeping GoReleaser-generated notes."
+            exit 0
+          }
+          # Re-add a one-line header with the version + a closing
+          # line that points to the README for installation steps.
+          NOTES=$(printf '## kopiaprofile %s\n\n%s\n\n---\nSee [README.md](https://github.com/mogic-le/kopiaprofile#installation) for installation instructions.\n' \
+            "$VERSION" "$BODY")
+          printf '%s\n' "$NOTES" > /tmp/release-notes.md
+          gh release edit "$TAG" --notes-file /tmp/release-notes.md
 
       - name: Notify Discord (optional)
         if: failure()

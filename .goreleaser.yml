@@ -141,45 +141,13 @@ sboms:
     cmd: cyclonedx-gomod
     # CycloneDX is the de-facto SBOM format for Go projects.
 
-# Use the section between `<!-- git-chglog LATEST-START -->` and
-# `<!-- git-chglog LATEST-END -->` in `CHANGELOG.md` as the body of
-# the GitHub release notes.
+# CHANGELOG.md is hand-maintained (Keep-a-Changelog style).
+# The release workflow (.github/workflows/release.yml) replaces the
+# GoReleaser-generated notes with the body of the corresponding
+# CHANGELOG.md section after `goreleaser release` runs. So we just
+# turn GoReleaser's own changelog renderer off here.
 changelog:
-  use: git
-  groups:
-    - title: Features
-      regexp: '^.*?(?i)(\bfeat\b|\bfeature\b)[\(\)\w\s]*:'
-      order: 0
-    - title: "Bug Fixes"
-      regexp: '^.*?(?i)(\bfix\b|\bbugfix\b)[\(\)\w\s]*:'
-      order: 1
-    - title: "Performance Improvements"
-      regexp: '^.*?(?i)(\bperf\b)[\(\)\w\s]*:'
-      order: 2
-    - title: "Refactoring"
-      regexp: '^.*?(?i)(\brefactor\b)[\(\)\w\s]*:'
-      order: 3
-    - title: "Reverts"
-      regexp: '^.*?(?i)(\brevert\b)[\(\)\w\s]*:'
-      order: 4
-    - title: "Build System"
-      regexp: '^.*?(?i)(\bbuild\b|\bci\b)[\(\)\w\s]*:'
-      order: 5
-    - title: "Documentation"
-      regexp: '^.*?(?i)(\bdoc\b|\bdocs\b)[\(\)\w\s]*:'
-      order: 6
-  filters:
-    exclude:
-      - "^Merge branch"
-      - "^Merge pull request"
-      - "^ci\\("
-      - "^test\\("
-      - "^docs\\("
-      - "^style\\("
-      - "^chore\\("
-  format: "{{.SHA}}: {{.Message}} ({{.AuthorName}})"
-  sort: asc
-  abbrev: 7
+  disable: true
 
 # Do NOT push a Docker image (kopiaprofile is a pure CLI; users install
 # the binary directly, via the per-distro package, or via `go install`).
