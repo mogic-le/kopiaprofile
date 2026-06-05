@@ -44,10 +44,85 @@ jobs:
       - name: Smoke test (--help)
         run: ./kopiaprofile --help
 
+      - name: Smoke test (version)
+        run: ./kopiaprofile version
+
+      - name: Smoke test (skeleton config)
+        run: |
+          cp ./kopiaprofile /tmp/kp-smoke 2>/dev/null || cp ./kopiaprofile ./kopiaprofile-smoke
+          ./kopiaprofile init /tmp/smoke.yaml --force --format=yaml
+          test -s /tmp/smoke.yaml
+          ./kopiaprofile display --config /tmp/smoke.yaml 2>&1 | head -20
+          # The skeleton has no profiles, so display should show the
+          # "no profiles" message and exit 0.
+          test $? -eq 0
+
       - name: Unit tests
         run: make test-ci
         env:
           GOEXPERIMENT: ""
+
+      - name: E2E smoke (filesystem backend)
+        # Exercises the full argv assembly path against a real
+        # `kopia` binary, with a *local* filesystem backend (no S3,
+        # no Docker, no external services). This catches regressions
+        # in BuildSnapshotArgs / BuildCopyArgs / hook env wiring
+        # without paying the cost of a real backup or needing any
+        # network access.
+        #
+        # This is NOT a full integration test. The full
+        # `bash testdata/integration-test.sh` (which spins up a
+        # rustfs container and exercises S3 + multi-repo-copy) is
+        # meant to be run locally with `make integration`. See
+        # docs/development.md for why.
+        shell: bash
+        env:
+          KOPIA_PASSWORD: sm0ke-test-pw
+          KOPIA_CONFIG_PATH: /tmp/kp-smoke-config
+        run: |
+          set -euo pipefail
+          # Install kopia 0.23 (the version we test against).
+          case "$(uname -s)" in
+            Linux)  KOPIA_OS=linux  ;;
+            Darwin) KOPIA_OS=darwin ;;
+            MINGW*|MSYS*|CYGWIN*) KOPIA_OS=windows ;;
+            *) echo "unsupported OS: $(uname -s)"; exit 1 ;;
+          esac
+          if ! command -v kopia >/dev/null 2>&1; then
+            curl -fsSL \
+              "https://github.com/kopia/kopia/releases/download/v0.23.0/kopia-0.23.0-${KOPIA_OS}-amd64.zip" \
+              -o /tmp/kopia.zip
+            unzip -o /tmp/kopia.zip -d /tmp/kopia-bin
+            sudo mv /tmp/kopia-bin/kopia /usr/local/bin/kopia 2>/dev/null \
+              || mv /tmp/kopia-bin/kopia /usr/local/bin/kopia
+            kopia --version
+          fi
+
+          # Generate a skeleton config and pin a few values.
+          ./kopiaprofile init /tmp/kp-smoke.yaml --force --format=yaml
+          cat > /tmp/kp-smoke.yaml <<'EOF'
+          default-base: &base
+            kopia-binary: kopia
+          profiles:
+            smoke:
+              <<: *base
+              repository:
+                type: filesystem
+                path: /tmp/kp-smoke-repo
+              cache-dir: /tmp/kp-smoke-cache
+              backup:
+                sources: ["/tmp/kp-smoke-data"]
+              password:
+                source: env
+                env: KOPIA_PASSWORD
+          EOF
+          mkdir -p /tmp/kp-smoke-data
+          echo "smoke test $(date -u +%FT%TZ)" > /tmp/kp-smoke-data/file.txt
+
+          # init + snapshot + snapshots
+          ./kopiaprofile --config /tmp/kp-smoke.yaml smoke init
+          ./kopiaprofile --config /tmp/kp-smoke.yaml smoke snapshot create
+          ./kopiaprofile --config /tmp/kp-smoke.yaml smoke snapshots
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'

@@ -8,7 +8,6 @@
 [rp]: https://github.com/creativeprojects/resticprofile
 
 [![CI](https://github.com/mogic-le/kopiaprofile/actions/workflows/test.yml/badge.svg)](https://github.com/mogic-le/kopiaprofile/actions/workflows/test.yml)
-[![Integration](https://github.com/mogic-le/kopiaprofile/actions/workflows/integration.yml/badge.svg)](https://github.com/mogic-le/kopiaprofile/actions/workflows/integration.yml)
 [![Lint](https://github.com/mogic-le/kopiaprofile/actions/workflows/lint.yml/badge.svg)](https://github.com/mogic-le/kopiaprofile/actions/workflows/lint.yml)
 [![Release](https://github.com/mogic-le/kopiaprofile/actions/workflows/release.yml/badge.svg)](https://github.com/mogic-le/kopiaprofile/actions/workflows/release.yml)
 [![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/mogic-le/kopiaprofile?sort=semver)](https://github.com/mogic-le/kopiaprofile/releases)
@@ -525,6 +524,33 @@ make snapshot     # goreleaser local snapshot (no publish)
 ```
 
 Tested with Go 1.25 on macOS, Linux and Windows (best-effort).
+
+### Integration tests
+
+`make integration` runs `testdata/integration-test.sh`, which spins
+up a local [rustfs](https://github.com/rustfs/rustfs) container and
+exercises the full end-to-end flow against S3 (filesystem backend,
+S3 backend, list-merge, multi-repo-copy, schedules, monitor). This
+test is **not** part of CI on every PR — it takes minutes, depends
+on a Docker daemon that the GitHub-hosted runners don't have on
+macOS, and would burn through free Actions minutes for an
+end-to-end backup you can run in 20s with `make integration`
+locally. The CI workflow (`test.yml`) instead runs an
+[end-to-end smoke test](.github/workflows/test.yml) against a
+`kopia` filesystem backend — no Docker, no network, ~5s.
+
+To run the full integration test locally you need:
+
+1. Docker (or any OCI runtime that understands `docker compose`).
+2. `kopia` on `$PATH` (e.g. `brew install kopia` or
+   `go install github.com/kopia/kopia@latest`).
+3. A free port 9000 (rustfs binds there).
+
+```bash
+docker compose -f testdata/docker-compose.rustfs.yaml up -d
+make build
+make integration
+```
 
 ## Release process
 
