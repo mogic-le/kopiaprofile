@@ -12,6 +12,27 @@ import (
 	"github.com/gofrs/flock"
 )
 
+// Lock is the file used as the OS-level flock target. The companion
+// metadata (PID, host, timestamp) lives in a sibling file with a
+// ".meta" suffix. We deliberately keep them separate:
+//
+//   - On Windows, the gofrs/flock implementation acquires an
+//     exclusive OS lock via LockFileEx. If we then call os.WriteFile
+//     on the same path, the open() of the existing file must
+//     share-read / share-write with the locked handle, and the
+//     combination regularly errors with "The process cannot access
+//     the file because another process has locked a portion of the
+//     file" — even though both opens are in the same process.
+//     Writing to a *different* path dodges the FILE_SHARE dance
+//     entirely.
+//   - On Unix, the OS-level flock is per-inode; writing to a sibling
+//     file has no impact on the lock.
+//   - The metadata is informational only; consumers of the lock
+//     (e.g. "is the previous holder still alive?") read the .meta
+//     file, not the lock file itself. So the lock file remains a
+//     zero-byte marker.
+const metaSuffix = ".meta"
+
 // pidAliveOS is the platform-specific implementation of pidAlive.
 // On Unix, signal 0 is the only reliable test for "process exists".
 // On Windows, signal 0 semantics differ; we fall back to FindProcess
@@ -35,6 +56,7 @@ var ErrLocked = errors.New("lock: already held")
 // on a successful acquisition to avoid leaking the file descriptor.
 type Lock struct {
 	path   string
+	meta   string
 	flock  *flock.Flock
 	holder bool
 }
@@ -54,6 +76,10 @@ type Options struct {
 	Timeout time.Duration
 }
 
+// metaPath returns the sibling file used to record the holder's
+// PID, host and acquisition timestamp.
+func metaPath(lockPath string) string { return lockPath + metaSuffix }
+
 // Acquire attempts to obtain the lock. It returns ErrLocked if another
 // process holds it. If opts.ForceInactive is true and the recorded PID
 // is gone, the lock is taken over (after deleting the stale file).
@@ -71,7 +97,7 @@ func Acquire(opts Options) (*Lock, error) {
 			return nil, err
 		}
 		if ok {
-			return &Lock{path: opts.Path, flock: flock.New(opts.Path), holder: true}, nil
+			return &Lock{path: opts.Path, meta: metaPath(opts.Path), flock: flock.New(opts.Path), holder: true}, nil
 		}
 		if opts.RetryAfter <= 0 || (!opts.ForceInactive && time.Now().After(deadline)) {
 			return nil, ErrLocked
@@ -84,16 +110,18 @@ func Acquire(opts Options) (*Lock, error) {
 }
 
 func tryAcquire(opts Options) (bool, error) {
-	// First, check whether the lock is stale.
+	// First, check whether the lock is stale. Staleness is determined
+	// from the *metadata* file (lock + ".meta"), not the lock file
+	// itself, which is a zero-byte flock target.
 	if opts.ForceInactive {
-		stale, pid, err := isStale(opts.Path)
+		stale, pid, err := isStale(metaPath(opts.Path))
 		if err != nil {
 			return false, err
 		}
 		if stale {
-			if err := os.Remove(opts.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return false, fmt.Errorf("removing stale lock: %w", err)
-			}
+			// Best-effort cleanup of both the lock and its metadata.
+			_ = os.Remove(metaPath(opts.Path))
+			_ = os.Remove(opts.Path)
 			_ = pid // for future use (could log the killed PID)
 		}
 	}
@@ -106,10 +134,13 @@ func tryAcquire(opts Options) (bool, error) {
 		_ = l.Unlock()
 		return false, nil
 	}
-	// Write our PID/hostname so a future process can detect staleness.
+	// Write our PID/hostname into a sibling file. We do NOT touch the
+	// lock file itself: the OS-level flock is the source of truth and
+	// mixing metadata writes with the lock handle is what triggers
+	// Windows' "process cannot access the file" error.
 	body := fmt.Sprintf("pid=%d\nhost=%s\nat=%s\n",
 		os.Getpid(), hostname(), time.Now().UTC().Format(time.RFC3339))
-	if err := os.WriteFile(opts.Path, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(metaPath(opts.Path), []byte(body), 0o600); err != nil {
 		_ = l.Unlock()
 		return false, fmt.Errorf("writing lock metadata: %w", err)
 	}
@@ -127,8 +158,10 @@ func (l *Lock) Release() error {
 		return fmt.Errorf("releasing lock: %w", err)
 	}
 	// Best-effort cleanup. The lock file is informational; the OS-level
-	// flock is the source of truth.
+	// flock is the source of truth. We also remove the sibling
+	// metadata file.
 	_ = os.Remove(l.path)
+	_ = os.Remove(l.meta)
 	return nil
 }
 
