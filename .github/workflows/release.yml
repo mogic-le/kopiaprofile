@@ -52,7 +52,7 @@ jobs:
       # `gh` is not preinstalled on github-hosted ubuntu runners; we
       # only need it for the post-publish notes edit below.
       - name: Install GitHub CLI
-        uses: cli/cli@v2
+        uses: cli/cli@v2.93.0
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
