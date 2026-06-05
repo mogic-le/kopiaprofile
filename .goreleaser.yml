@@ -90,7 +90,10 @@ archives:
       - LICENSE
       - README.md
       - CHANGELOG.md
-    modtime: "{{ .CommitTimestamp }}"
+
+# Note: GoReleaser v2 removed the per-archive \`modtime\` knob. The
+# default (\`{{ .CommitTimestamp }}\` at the top-level \`builds\`
+# block) already gives us reproducible archive timestamps.
 
 nfpms:
   - id: packages
