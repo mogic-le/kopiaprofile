@@ -313,12 +313,12 @@ Global flags: `--config <file>` (`-c`), `--verbose` (`-v`), `--quiet`.
 | `kopiaprofile profiles list`               | list all profiles (post-inheritance)       |
 | `kopiaprofile display [<profile>]`         | show the resolved configuration            |
 | `kopiaprofile passwd <profile>`            | load and store the password in the keyring |
-| `kopiaprofile generate random`             | generate a random hex secret                |
-| `kopiaprofile schedule list`               | list configured schedules                   |
-| `kopiaprofile schedule render`             | render schedules to crontab/systemd/launchd |
-| `kopiaprofile schedule install`            | install the rendered schedule              |
-| `kopiaprofile monitor status`              | show the last run's status                 |
-| `kopiaprofile monitor list`                | list known status files                    |
+| `kopiaprofile generate --random-key`       | generate a 32-byte hex-encoded random key  |
+| `kopiaprofile schedule list [--profile <name>]` | list configured schedules             |
+| `kopiaprofile schedule render [--format=…]`  | render schedules to crontab/systemd/launchd |
+| `kopiaprofile schedule install`              | install the rendered schedule              |
+| `kopiaprofile monitor status [-f <file>]`    | show the last run's status                 |
+| `kopiaprofile monitor list`                  | list known status files                    |
 | `kopiaprofile version`                     | print version information                  |
 | `kopiaprofile completion <shell>`          | generate shell completions                 |
 
