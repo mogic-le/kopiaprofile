@@ -160,9 +160,32 @@ func (l *Lock) Release() error {
 	// Best-effort cleanup. The lock file is informational; the OS-level
 	// flock is the source of truth. We also remove the sibling
 	// metadata file.
-	_ = os.Remove(l.path)
-	_ = os.Remove(l.meta)
+	//
+	// gofrs/flock on Windows does not set FILE_SHARE_DELETE on the
+	// handle it opens internally, so a second os.Remove right after
+	// Unlock() can race with the still-being-closed handle and
+	// fail with ERROR_SHARING_VIOLATION. We retry-with-backoff to
+	// give the kernel a moment to release the handle.
+	removeWithRetry(l.path)
+	removeWithRetry(l.meta)
 	return nil
+}
+
+// removeWithRetry calls os.Remove and retries a few times with a
+// short sleep if the call fails with a sharing violation (Windows)
+// or resource busy (Unix). This is intentionally silent: the lock
+// file is informational and a leftover file is harmless.
+func removeWithRetry(path string) {
+	const attempts = 5
+	const delay = 20 * time.Millisecond
+	for i := range attempts {
+		if err := os.Remove(path); err == nil {
+			return
+		}
+		if i < attempts-1 {
+			time.Sleep(delay)
+		}
+	}
 }
 
 // Path returns the lock file path.
