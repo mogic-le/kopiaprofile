@@ -51,11 +51,26 @@ assembled from your config.
 Download the latest release for your platform from the
 [GitHub releases page](https://github.com/mogic-le/kopiaprofile/releases).
 Each release ships a tarball (Linux / macOS / BSD), a zip (Windows)
-and `.deb` / `.rpm` / `.apk` packages.
+and `.deb` / `.rpm` packages.
+
+Replace `<VERSION>` with the tag of the release you want (for
+example `0.0.1`) and `<TARGET>` with one of:
+
+| OS      | `<TARGET>` (tarball / zip)            |
+|---------|----------------------------------------|
+| Linux   | `Linux_x86_64`, `Linux_i386`, `Linux_arm64`, `Linux_armv6`, `Linux_armv7` |
+| macOS   | `Darwin_x86_64`, `Darwin_arm64`        |
+| Windows | `Windows_x86_64`, `Windows_i386`, `Windows_arm64` |
+| FreeBSD | `Freebsd_x86_64`, `Freebsd_i386`, `Freebsd_armv6`, `Freebsd_armv7` |
+| OpenBSD | `Openbsd_x86_64`, `Openbsd_i386`, `Openbsd_arm64` |
+| NetBSD  | `Netbsd_x86_64`, `Netbsd_arm64`, `Netbsd_armv6`, `Netbsd_armv7` |
 
 ```bash
-# example: install Linux amd64
-curl -fsSL https://github.com/mogic-le/kopiaprofile/releases/latest/download/kopiaprofile_VERSION_linux_amd64.tar.gz | tar -xz -C /tmp
+VERSION=0.0.1
+TARGET=Linux_x86_64
+curl -fsSL \
+  "https://github.com/mogic-le/kopiaprofile/releases/download/v${VERSION}/kopiaprofile_${VERSION}_${TARGET}.tar.gz" \
+  | tar -xz -C /tmp
 sudo mv /tmp/kopiaprofile /usr/local/bin/
 kopiaprofile version
 ```
@@ -65,18 +80,31 @@ referenced via the `kopia-binary` global / per-profile setting).
 
 ### Linux package managers
 
-Each release also produces `.deb`, `.rpm` and `.apk` artefacts that
-you can install directly with your distro's package manager:
+Each release also produces `.deb` and `.rpm` packages that you can
+install directly with your distro's package manager:
 
 ```bash
-# Debian / Ubuntu
-sudo dpkg -i kopiaprofile_VERSION_amd64.deb
+# Debian / Ubuntu (amd64)
+sudo dpkg -i "https://github.com/mogic-le/kopiaprofile/releases/download/v${VERSION}/kopiaprofile_${VERSION}_linux_amd64.deb"
 
-# Fedora / RHEL
-sudo rpm -i kopiaprofile_VERSION.x86_64.rpm
+# Fedora / RHEL (x86_64)
+sudo rpm -i "https://github.com/mogic-le/kopiaprofile/releases/download/v${VERSION}/kopiaprofile_${VERSION}_linux_amd64.rpm"
+```
 
-# Alpine
-sudo apk add --allow-untrusted kopiaprofile_VERSION_x86_64.apk
+(Alpine users should run the Linux x86_64 / arm64 tarball —
+we don't currently ship a standalone `apk` package; track the
+[issue tracker](https://github.com/mogic-le/kopiaprofile/issues)
+if you need one.)
+
+### Verifying the download
+
+Each release ships a `kopiaprofile_<VERSION>_SHA256SUMS` file
+listing the SHA-256 of every artefact. Verify with:
+
+```bash
+curl -fsSL \
+  "https://github.com/mogic-le/kopiaprofile/releases/download/v${VERSION}/kopiaprofile_${VERSION}_SHA256SUMS" \
+  | sha256sum --ignore-missing -c
 ```
 
 ### From source
@@ -579,9 +607,9 @@ The release workflow (`.github/workflows/release.yml`) will then:
    OS/arch combination.
 2. Copy the body of the new `CHANGELOG.md` section into the GitHub
    release notes.
-3. Publish tarballs, zips, `.deb`/`.rpm`/`.apk` packages, a
-   `SHA256SUMS` file (signed with cosign keyless) and a CycloneDX
-   SBOM.
+3. Publish tarballs, zips, `.deb`/`.rpm` packages and a
+   `SHA256SUMS` file. The release starts as a **draft**; review
+   it, fix typos, then click "Publish".
 
 ### Commit message format
 
