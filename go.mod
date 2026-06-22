@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/hashicorp/hcl/v2 v2.24.0
-	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/pelletier/go-toml/v2 v2.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	github.com/zclconf/go-cty v1.18.1
