@@ -32,11 +32,19 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 
 	// Filter out kopiaprofile-internal flags from the user-supplied
 	// `rest` so they don't get forwarded to kopia. `--dry-run` is
-	// supported alongside `--verbose`; both are handled by the
-	// runner, not by kopia.
+	// handled by the runner, not by kopia - and NOT by --verbose (see
+	// below): the two used to be conflated (DryRun was wired to
+	// flags.Verbose), so `-v`/`--verbose` silently skipped ever
+	// running kopia at all, contradicting its own documented meaning
+	// ("print the exact kopia command line ... before each run" - not
+	// "instead of a run"). --verbose already gets its printing from
+	// rootLogger() switching to Debug level (see the "kopia argv"
+	// debug log in profile.Run), so it needs no DryRun wiring at all.
+	dryRun := false
 	filtered := rest[:0]
 	for _, a := range rest {
 		if a == "--dry-run" {
+			dryRun = true
 			continue
 		}
 		filtered = append(filtered, a)
@@ -102,7 +110,7 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		Writer:            os.Stdout,
 		ErrWriter:         os.Stderr,
 		Logger:            rootLogger(flags),
-		DryRun:            flags.Verbose,
+		DryRun:            dryRun,
 		Timeout:           24 * time.Hour,
 		MonitorManager:    buildMonitorForProfile(cfg, expanded),
 		PreCommand:        preCommand,
@@ -174,22 +182,29 @@ func buildKopiaArgs(p config.Profile, action string, rest []string) ([]string, e
 	args := []string{action}
 	switch action {
 	case "snapshot", "snap":
-		// `kopiaprofile home snapshot create /path` ->
-		// `kopia snapshot create /path --tags=... --ignore=...`
+		// `kopiaprofile home snapshot` / `kopiaprofile home snapshot
+		// create /path` -> `kopia snapshot create /path --tags=...
+		// --ignore=...`
 		//
-		// If the user invoked the action with the explicit
-		// `create` subcommand but did not pass any positional
-		// source paths, fall back to the profile's
-		// backup.sources. This makes
-		// `kopiaprofile home snapshot create` work without
-		// repeating the source paths.
+		// Bare `snapshot` (no args at all) is the resticprofile-style
+		// "just back this profile up" shorthand - equivalent to
+		// `resticprofile backup` needing no further arguments. It is
+		// unambiguous: kopiaprofile's own action set already has a
+		// separate `snapshots` (plural) action for listing, so a bare
+		// singular `snapshot` can only ever mean "take one". Falls
+		// back to the profile's backup.sources when no positional
+		// source path is given either way.
 		//
 		// Examples:
-		//   kopiaprofile p snapshot create            -> uses backup.sources
-		//   kopiaprofile p snapshot create /tmp/foo   -> uses /tmp/foo
-		//   kopiaprofile p snapshot list               -> list, no fallback
-		if len(rest) >= 1 && rest[0] == "create" && len(p.Backup.Sources) > 0 {
-			after := rest[1:]
+		//   kopiaprofile p snapshot                    -> uses backup.sources
+		//   kopiaprofile p snapshot create              -> uses backup.sources
+		//   kopiaprofile p snapshot create /tmp/foo     -> uses /tmp/foo
+		//   kopiaprofile p snapshot list                 -> list, no fallback
+		if len(rest) == 0 || rest[0] == "create" {
+			after := rest
+			if len(rest) > 0 {
+				after = rest[1:]
+			}
 			if len(after) == 0 {
 				after = append(after, p.Backup.Sources...)
 			}
@@ -198,7 +213,11 @@ func buildKopiaArgs(p config.Profile, action string, rest []string) ([]string, e
 		} else {
 			args = append(args, rest...)
 		}
-		args = append(args, wrapper.BuildSnapshotArgs(p)...)
+		snapshotArgs, err := wrapper.BuildSnapshotArgs(p)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, snapshotArgs...)
 	case "snapshots":
 		// `kopiaprofile home snapshots` -> `kopia snapshot list --all`
 		args = []string{"snapshot", "list", "--all"}

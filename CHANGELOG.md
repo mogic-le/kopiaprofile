@@ -18,6 +18,36 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.1.0] - 2026-07-20
+
+### Added
+
+- Bare `<profile> snapshot` (no `create`, no path) now falls back to
+  `backup.sources`, matching resticprofile's `backup`-needs-no-arguments
+  shorthand. Previously the `backup.sources` fallback only triggered when
+  `create` was given explicitly, so the shortest possible invocation
+  produced a bare `kopia snapshot` (list-like, no `create` subcommand),
+  which kopia rejects outright on any of the `snapshot create`-only
+  flags (e.g. `--parallel`).
+- `backup.exclude-file:` is now actually honored. Kopia has no
+  `--exclude-file=` flag of its own; the file's patterns (one glob per
+  line, blank lines and `#` comments skipped) are now read and expanded
+  into individual `--ignore=` flags, same as `backup.exclude:`.
+  Previously the field was parsed from config and merged during profile
+  inheritance but never forwarded to kopia at all, so a configured
+  exclude file was silently ignored and everything under the source
+  path(s) got backed up, unfiltered.
+
+### Fixed
+
+- `-v`/`--verbose` no longer silently skips running kopia. It was
+  wired to the same `DryRun` flag as the (separate, per-action)
+  `--dry-run`, so passing `--verbose` - documented only as printing the
+  command line before each run - actually ran nothing at all. `--dry-run`
+  is now the only way to trigger a dry run; `--verbose` only raises the
+  log level (which already prints the exact, secret-masked command
+  line).
+
 ## [0.0.2] - 2026-07-20
 
 ### Fixed
@@ -63,5 +93,5 @@ Initial public release.
   E2E smoke test against a `kopia` filesystem backend.
 - GoReleaser v2 release pipeline with cosign keyless signing.
 
-[0.0.2]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.0.2
 [0.1.0]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.1.0
+[0.0.2]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.0.2

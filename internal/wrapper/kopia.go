@@ -371,10 +371,36 @@ func kopiaTagSpec(tag string, counter *int) string {
 	return fmt.Sprintf("tag%d", *counter) + ":" + tag
 }
 
+// readIgnorePatterns reads a resticprofile-style exclude file (one glob
+// pattern per line, blank lines and "#" comments skipped) and returns the
+// patterns found. Kopia has no "--exclude-file=" flag of its own (ignore
+// rules are either per-directory .kopiaignore files or repository policy,
+// see kopia.io/docs/advanced/kopiaignore) - a snapshot-time exclude file
+// only works if the caller expands it into individual --ignore= flags
+// itself, which is what BuildSnapshotArgs does with this.
+func readIgnorePatterns(path string) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var patterns []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		patterns = append(patterns, line)
+	}
+	return patterns, scanner.Err()
+}
+
 // BuildSnapshotArgs returns the kopia flags corresponding to a
 // profile's backup section. Pass the source list (positional args) at
 // the end.
-func BuildSnapshotArgs(p config.Profile) []string {
+func BuildSnapshotArgs(p config.Profile) ([]string, error) {
 	var args []string
 	if p.Backup.IgnoreIdentical {
 		args = append(args, "--ignore-identical-snapshots=true")
@@ -408,6 +434,15 @@ func BuildSnapshotArgs(p config.Profile) []string {
 	for _, ex := range p.Backup.Exclude {
 		args = append(args, "--ignore="+ex)
 	}
+	if p.Backup.ExcludeFile != "" {
+		patterns, err := readIgnorePatterns(p.Backup.ExcludeFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading exclude-file %q: %w", p.Backup.ExcludeFile, err)
+		}
+		for _, pattern := range patterns {
+			args = append(args, "--ignore="+pattern)
+		}
+	}
 	for _, tag := range p.Backup.Tags {
 		// Kopia uses "key:value" tags and DE-DUPLICATES by key.
 		// A list of two bare tags like ["demo", "src"] would
@@ -432,7 +467,7 @@ func BuildSnapshotArgs(p config.Profile) []string {
 			}
 		}
 	}
-	return args
+	return args, nil
 }
 
 // BuildVerifyArgs returns kopia flags for a profile's verify section.

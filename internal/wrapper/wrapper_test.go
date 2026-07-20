@@ -1,6 +1,7 @@
 package wrapper
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -13,7 +14,10 @@ func TestBuildSnapshotArgsTags(t *testing.T) {
 			Tags: []string{"nightly", "host:web1", "env:prod"},
 		},
 	}
-	args := BuildSnapshotArgs(p)
+	args, err := BuildSnapshotArgs(p)
+	if err != nil {
+		t.Fatalf("BuildSnapshotArgs: %v", err)
+	}
 	joined := strings.Join(args, " ")
 	// Bare tags ("nightly") are disambiguated as "tag1:nightly" /
 	// "tag2:…" to avoid kopia's "Duplicate tag" error. The exact
@@ -32,7 +36,10 @@ func TestBuildSnapshotArgsTags(t *testing.T) {
 
 func TestBuildSnapshotArgsParallel(t *testing.T) {
 	p := config.Profile{Backup: config.BackupSection{Parallel: 8}}
-	args := BuildSnapshotArgs(p)
+	args, err := BuildSnapshotArgs(p)
+	if err != nil {
+		t.Fatalf("BuildSnapshotArgs: %v", err)
+	}
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--parallel=8") {
 		t.Errorf("parallel not set: %v", args)
@@ -41,7 +48,10 @@ func TestBuildSnapshotArgsParallel(t *testing.T) {
 
 func TestBuildSnapshotArgsExcludes(t *testing.T) {
 	p := config.Profile{Backup: config.BackupSection{Exclude: []string{"*.tmp", "**/node_modules"}}}
-	args := BuildSnapshotArgs(p)
+	args, err := BuildSnapshotArgs(p)
+	if err != nil {
+		t.Fatalf("BuildSnapshotArgs: %v", err)
+	}
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--ignore=*.tmp") {
 		t.Errorf("exclude 1: %v", args)
@@ -51,9 +61,46 @@ func TestBuildSnapshotArgsExcludes(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshotArgsExcludeFile(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "exclude-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	if _, err := f.WriteString("/proc\n# a comment\n\n/sys\n"); err != nil {
+		t.Fatalf("WriteString: %v", err)
+	}
+	f.Close()
+
+	p := config.Profile{Backup: config.BackupSection{ExcludeFile: f.Name()}}
+	args, err := BuildSnapshotArgs(p)
+	if err != nil {
+		t.Fatalf("BuildSnapshotArgs: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--ignore=/proc") {
+		t.Errorf("missing /proc: %v", args)
+	}
+	if !strings.Contains(joined, "--ignore=/sys") {
+		t.Errorf("missing /sys: %v", args)
+	}
+	if strings.Contains(joined, "comment") {
+		t.Errorf("comment line leaked into args: %v", args)
+	}
+}
+
+func TestBuildSnapshotArgsExcludeFileMissing(t *testing.T) {
+	p := config.Profile{Backup: config.BackupSection{ExcludeFile: "/nonexistent/does-not-exist.txt"}}
+	if _, err := BuildSnapshotArgs(p); err == nil {
+		t.Error("expected an error for a missing exclude-file, got nil")
+	}
+}
+
 func TestBuildSnapshotArgsIgnoreIdentical(t *testing.T) {
 	p := config.Profile{Backup: config.BackupSection{IgnoreIdentical: true}}
-	args := BuildSnapshotArgs(p)
+	args, err := BuildSnapshotArgs(p)
+	if err != nil {
+		t.Fatalf("BuildSnapshotArgs: %v", err)
+	}
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--ignore-identical-snapshots=true") {
 		t.Errorf("ignore-identical not set: %v", args)
@@ -67,7 +114,10 @@ func TestBuildSnapshotArgsNoSnapshotReport(t *testing.T) {
 	// positional source, which causes "unsupported source: .../false"
 	// errors).
 	p := config.Profile{Backup: config.BackupSection{SendSnapshotReport: false}}
-	args := BuildSnapshotArgs(p)
+	args, err := BuildSnapshotArgs(p)
+	if err != nil {
+		t.Fatalf("BuildSnapshotArgs: %v", err)
+	}
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--no-send-snapshot-report") {
 		t.Errorf("--no-send-snapshot-report not set: %v", args)
