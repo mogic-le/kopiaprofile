@@ -18,6 +18,10 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.0.2] - 2026-07-20
+
+### Fixed
+
 - `schedule install --format=systemd` now actually runs `systemctl
   daemon-reload` and `systemctl enable --now` for every installed
   `.timer` unit, matching what its own `--help` text always claimed.
@@ -59,4 +63,5 @@ Initial public release.
   E2E smoke test against a `kopia` filesystem backend.
 - GoReleaser v2 release pipeline with cosign keyless signing.
 
+[0.0.2]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.0.2
 [0.1.0]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.1.0
