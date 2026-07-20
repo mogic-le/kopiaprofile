@@ -18,6 +18,13 @@ maintainer's checklist.
 
 ### Fixed
 
+- `schedule install --format=systemd` now actually runs `systemctl
+  daemon-reload` and `systemctl enable --now` for every installed
+  `.timer` unit, matching what its own `--help` text always claimed.
+  Previously it only printed those commands as a suggestion, so an
+  installed schedule stayed inactive until an operator ran them by
+  hand.
+
 ## [0.0.1] - 2026-06-05
 
 Initial public release.

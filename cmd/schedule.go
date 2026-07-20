@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -244,7 +245,7 @@ func installSchedule(sc schedule.Config, format, dest string, flags *rootFlags) 
 		for _, w := range written {
 			Print("wrote %s", w)
 		}
-		Print("enable with: systemctl daemon-reload && systemctl enable --now $(basename %s/*.timer | tr '\\n' ' ')", dest)
+		activateSystemdUnits(written)
 	case "launchd":
 		files, err := sc.RenderLaunchd(schedule.LaunchdOptions{})
 		if err != nil {
@@ -262,6 +263,43 @@ func installSchedule(sc schedule.Config, format, dest string, flags *rootFlags) 
 		return errorf("unknown format %q", format)
 	}
 	return nil
+}
+
+// activateSystemdUnits runs `systemctl daemon-reload` followed by
+// `systemctl enable --now` for every .timer unit among the freshly
+// written files. This is what the `install` command's own --help text
+// has always claimed it does; previously it only printed the commands
+// as a suggestion without ever executing them, which left an installed
+// schedule inactive until an operator ran the printed commands by hand.
+// A failure here does not roll back the files that were already
+// written - it is reported as a warning so the caller can still see
+// what was installed and finish activation manually if systemctl is
+// unavailable (e.g. containers, non-systemd hosts despite --format=systemd).
+func activateSystemdUnits(written []string) {
+	if err := runSystemctl("daemon-reload"); err != nil {
+		Print("warning: systemctl daemon-reload failed: %v", err)
+		return
+	}
+	Print("ran: systemctl daemon-reload")
+
+	for _, w := range written {
+		if !strings.HasSuffix(w, ".timer") {
+			continue
+		}
+		name := filepath.Base(w)
+		if err := runSystemctl("enable", "--now", name); err != nil {
+			Print("warning: systemctl enable --now %s failed: %v", name, err)
+			continue
+		}
+		Print("ran: systemctl enable --now %s", name)
+	}
+}
+
+func runSystemctl(args ...string) error {
+	cmd := exec.Command("systemctl", args...) // #nosec G204 -- args are "daemon-reload" or "enable"/"--now"/a unit basename we just wrote ourselves
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func isLinux() bool { return os.PathSeparator == '/' && !fileExists("/System/Library") }
