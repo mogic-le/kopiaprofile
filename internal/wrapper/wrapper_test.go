@@ -88,7 +88,9 @@ func TestBuildPolicyIgnoreArgsExcludeFile(t *testing.T) {
 	if _, err := f.WriteString("/proc\n# a comment\n\n/sys\n"); err != nil {
 		t.Fatalf("WriteString: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	p := config.Profile{Backup: config.BackupSection{ExcludeFile: f.Name()}}
 	args, err := BuildPolicyIgnoreArgs(p)

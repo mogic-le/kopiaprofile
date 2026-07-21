@@ -18,6 +18,14 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.2] - 2026-07-21
+
+### Fixed
+
+- Two unchecked `f.Close()` errcheck lint findings (`internal/wrapper/kopia.go`,
+  `internal/wrapper/wrapper_test.go`) that were failing CI on every push since
+  0.1.0. No behavior change.
+
 ## [0.2.1] - 2026-07-21
 
 ### Fixed
