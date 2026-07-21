@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/mogic-le/kopiaprofile/internal/config"
 )
 
 // newMonitorCmd implements `kopiaprofile monitor`. The subcommands:
@@ -29,13 +31,31 @@ func newMonitorCmd(flags *rootFlags) *cobra.Command {
 func newMonitorStatusCmd(flags *rootFlags) *cobra.Command {
 	var file string
 	cmd := &cobra.Command{
-		Use:   "status",
+		Use:   "status [<profile>]",
 		Short: "Print the most recent run status",
-		RunE: func(_ *cobra.Command, _ []string) error {
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
 			path := file
 			if path == "" {
-				_, _ = loadConfig(flags) // validate config early
-				path = defaultStatusPath()
+				cfg, err := loadConfig(flags)
+				if err != nil {
+					return err
+				}
+				profileName := ""
+				if len(args) > 0 {
+					profileName = args[0]
+				} else {
+					names := cfg.Names()
+					if len(names) != 1 {
+						return errorf("multiple profiles configured, specify one: kopiaprofile monitor status <profile> (or -f <file>)")
+					}
+					profileName = names[0]
+				}
+				p, ok := cfg.Get(profileName)
+				if !ok {
+					return errorf("unknown profile %q", profileName)
+				}
+				path = statusFilePath(flags, p)
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -45,34 +65,31 @@ func newMonitorStatusCmd(flags *rootFlags) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&file, "file", "f", "", "explicit path to a status file (default: ~/.cache/kopiaprofile/monitor/status.json)")
+	cmd.Flags().StringVarP(&file, "file", "f", "", "explicit path to a status file (default: the profile's monitor.status-file, or ~/.cache/kopiaprofile/<profile>/status.json)")
 	return cmd
 }
 
 func newMonitorListCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all status files",
+		Short: "List all known status files, one per profile",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			_, _ = loadConfig(flags)
-			dir := defaultStatusDir()
-			entries, err := os.ReadDir(dir)
+			cfg, err := loadConfig(flags)
 			if err != nil {
-				if os.IsNotExist(err) {
-					Print("no status directory yet: %s", dir)
-					return nil
-				}
 				return err
 			}
-			for _, e := range entries {
-				if e.IsDir() {
-					continue
+			for _, n := range cfg.Names() {
+				p, _ := cfg.Get(n)
+				path := statusFilePath(flags, p)
+				info, err := os.Stat(path)
+				if err != nil {
+					if os.IsNotExist(err) {
+						Print("%-20s -- (no status yet: %s)", n, path)
+						continue
+					}
+					return err
 				}
-				info, _ := e.Info()
-				Print("%s  %d bytes  %s",
-					info.ModTime().Format(time.RFC3339),
-					info.Size(),
-					filepath.Join(dir, e.Name()))
+				Print("%-20s %s  %d bytes  %s", n, info.ModTime().Format(time.RFC3339), info.Size(), path)
 			}
 			return nil
 		},
@@ -80,13 +97,25 @@ func newMonitorListCmd(flags *rootFlags) *cobra.Command {
 	return cmd
 }
 
-func defaultStatusPath() string {
-	return filepath.Join(defaultStatusDir(), "status.json")
-}
-
-func defaultStatusDir() string {
+// statusFilePath resolves the status file a profile actually writes
+// to: its own monitor.status-file (expanded the same way
+// buildMonitorForProfile in run.go does), or the
+// ~/.cache/kopiaprofile/<profile>/status.json default. `monitor
+// status`/`monitor list` used to look in a flat ~/.cache/kopiaprofile/
+// monitor/ directory that no run ever wrote to.
+func statusFilePath(flags *rootFlags, p config.Profile) string {
+	if p.Monitor.StatusFile != "" {
+		expanded := p.Monitor.StatusFile
+		if expanded[0] == '~' {
+			if home, err := os.UserHomeDir(); err == nil {
+				expanded = filepath.Join(home, expanded[1:])
+			}
+		}
+		if !filepath.IsAbs(expanded) {
+			expanded = filepath.Join(filepath.Dir(flags.ConfigFile), expanded)
+		}
+		return expanded
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "kopiaprofile", "monitor")
+	return filepath.Join(home, ".cache", "kopiaprofile", p.Name, "status.json")
 }
-
-

@@ -103,24 +103,39 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		}
 	}
 
-	// backup.exclude / backup.exclude-file have no kopia snapshot-create
-	// equivalent (kopia rejects "--ignore=" outright - verified against a
-	// real kopia 0.23.1); ignore rules are policy state. Apply them as a
-	// "kopia policy set --global --add-ignore=..." pre-command against
-	// the SAME already-connected repository (preKopiaConfigDir/
-	// preCacheDir stay empty, unlike the `copy` case above, so
-	// profile.Run does not redirect to a different kopia.config). This
-	// is idempotent - kopia's ignore list already de-duplicates - so
-	// running it before every snapshot is safe and keeps the policy in
-	// sync if the config's exclude list ever changes.
+	// backup.exclude / backup.exclude-file and retention.keep-* have no
+	// kopia snapshot-create equivalent (kopia rejects "--ignore=" and has
+	// no per-invocation retention flag - verified against a real kopia
+	// 0.23.1); both are policy state. Apply them together as a single
+	// "kopia policy set --global --add-ignore=... --keep-*=..."
+	// pre-command against the SAME already-connected repository
+	// (preKopiaConfigDir/preCacheDir stay empty, unlike the `copy` case
+	// above, so profile.Run does not redirect to a different
+	// kopia.config). This is idempotent - kopia's policy set already
+	// de-duplicates ignore entries and simply overwrites keep-* values -
+	// so running it before every snapshot is safe and keeps the policy
+	// in sync if the profile's exclude/retention settings ever change.
 	if action == "snapshot" || action == "snap" {
-		if ignoreArgs, ierr := wrapper.BuildPolicyIgnoreArgs(expanded); ierr != nil {
+		var policyArgs []string
+		ignoreArgs, ierr := wrapper.BuildPolicyIgnoreArgs(expanded)
+		if ierr != nil {
 			return ierr
-		} else if len(ignoreArgs) > 0 {
-			preCommand = ignoreArgs
+		}
+		policyArgs = append(policyArgs, ignoreArgs...)
+		if retentionArgs := wrapper.BuildPolicyRetentionArgs(expanded); len(retentionArgs) > 0 {
+			if len(policyArgs) == 0 {
+				policyArgs = retentionArgs
+			} else {
+				// retentionArgs already starts with "policy","set","--global";
+				// only append its actual flags.
+				policyArgs = append(policyArgs, retentionArgs[3:]...)
+			}
+		}
+		if len(policyArgs) > 0 {
+			preCommand = policyArgs
 			pw, perr := secrets.FromProfile(expanded).Load()
 			if perr != nil {
-				return errorf("loading password for ignore policy: %w", perr)
+				return errorf("loading password for policy: %w", perr)
 			}
 			prePassword = pw
 		}
@@ -274,15 +289,33 @@ func buildKopiaArgs(p config.Profile, action string, rest []string) ([]string, e
 	case "prune":
 		args = []string{"maintenance", "run", "--full"}
 	case "check-index":
-		args = []string{"index", "optimize"}
+		// `kopia index optimize` is a mutating compaction command hidden
+		// behind --dangerous-commands=enabled (it can drop content) - not
+		// what a read-only "check" action should run. `index inspect
+		// --all` reports on every index blob, active and inactive,
+		// without changing anything.
+		args = []string{"index", "inspect", "--all"}
 	case "forget":
-		// Kopia does not have a "forget" command. Retention is applied
-		// automatically by `kopia policy set` (handled at init time).
-		return nil, errorf(`"forget" is implicit in Kopia; configure retention.once in the profile and run "kopiaprofile <p> init" to apply`)
+		// Kopia does not have a "forget" command. Retention is implicit:
+		// the profile's retention.keep-* values are applied via
+		// "kopia policy set --global --keep-*=..." before every
+		// snapshot (see the pre-command built above), and kopia expires
+		// old snapshots against that policy as part of maintenance
+		// ("kopiaprofile <p> prune").
+		return nil, errorf(`"forget" is implicit in Kopia; configure retention.keep-* in the profile, it is applied automatically on the next "kopiaprofile <p> snapshot"`)
 	case "connect":
-		args = []string{"repository", "connect"}
-		args = append(args, p.Repository.Type)
-		args = append(args, rest...)
+		// Self-contained: buildProfileFlags deliberately never adds
+		// connection flags for "repository connect" (see its comment),
+		// so this action must supply --bucket/--access-key/... itself,
+		// same as BuildSourceConnectArgs does for the `copy` action's
+		// source. Without this, "connect" emitted a bare "repository
+		// connect <type>" with no storage flags at all and always
+		// failed with "required flag(s) ... not provided".
+		connectArgs := wrapper.BuildConnectArgs(p.Repository)
+		if connectArgs == nil {
+			return nil, errorf("action %q requires repository.type to be set", action)
+		}
+		args = append(connectArgs, rest...)
 	case "init":
 		args = []string{"repository", "create"}
 		args = append(args, p.Repository.Type)

@@ -18,6 +18,36 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.1] - 2026-07-21
+
+### Fixed
+
+- `connect` emitted a bare `repository connect <type>` with no storage
+  flags at all and always failed with "required flag(s) '--secret-access-key',
+  '--bucket', '--access-key' not provided". `buildProfileFlags` deliberately
+  never adds connection flags for the `connect` subcommand (that suppression
+  exists for the `copy` action's source pre-connect, which is self-contained
+  via `BuildSourceConnectArgs`); the top-level `connect` action shared the
+  same subcommand name but never got its own flags built. Fixed with a new
+  `BuildConnectArgs`, self-contained the same way.
+- `check-index` mapped to `kopia index optimize`, a mutating compaction
+  command hidden behind `--dangerous-commands=enabled` (it can drop content)
+  in current kopia - not what a read-only "check" action should run, and it
+  failed out of the box. Now maps to `kopia index inspect --all`, which
+  reports on every index blob without changing anything.
+- `retention.keep-*` in a profile was purely decorative: nothing ever issued
+  the corresponding `kopia policy set --keep-*` calls, so old snapshots were
+  never actually expired regardless of what the profile configured. Now
+  applied via `kopia policy set --global --keep-*=...` before every
+  snapshot, merged into the same pre-command that already applies
+  `backup.exclude`/`exclude-file`.
+- `monitor status`/`monitor list` looked in a flat
+  `~/.cache/kopiaprofile/monitor/` directory that no run ever wrote to (runs
+  write per-profile, at `~/.cache/kopiaprofile/<profile>/status.json` or the
+  profile's own `monitor.status-file`). `status` now takes an optional
+  `<profile>` argument (defaulting to the sole configured profile) and
+  `list` enumerates every configured profile's actual status file.
+
 ## [0.2.0] - 2026-07-21
 
 ### Added

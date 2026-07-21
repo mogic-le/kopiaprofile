@@ -204,9 +204,15 @@ func buildProfileFlags(p config.Profile, command []string) []string {
 				// are still needed.
 				positionalType = true
 			case "connect":
-				// `repository connect <type> ...` is
-				// fully supplied by
-				// BuildSourceConnectArgs.
+				// `repository connect <type> ...` is always
+				// built self-contained by BuildConnectArgs
+				// (top-level `connect` action) or
+				// BuildSourceConnectArgs (the `copy` action's
+				// source pre-connect) - never here. The two
+				// callers need different repository configs
+				// (the profile's own vs. copy.source's), and
+				// buildProfileFlags only ever sees the
+				// profile's own, so it must stay hands-off.
 				emitConnection = false
 			case "sync-to":
 				// `repository sync-to <type> ...` is
@@ -321,6 +327,56 @@ func HasSubcommandType(command []string) bool {
 		}
 	}
 	return false
+}
+
+// BuildConnectArgs returns the fully self-contained argv for `kopia
+// repository connect <type> --bucket=... ...` to (re)connect a profile
+// to its own repository - used by the top-level `connect` action
+// (cmd/run.go). It must be self-contained rather than relying on
+// buildProfileFlags: that function deliberately stays hands-off for
+// the "connect" subcommand (see the comment on its "connect" case),
+// since the same subcommand is also used, with a different repository,
+// by the `copy` action's source pre-connect.
+func BuildConnectArgs(r config.Repository) []string {
+	if r.Type == "" {
+		return nil
+	}
+	args := []string{"repository", "connect", r.Type}
+	if r.Bucket != "" {
+		args = append(args, "--bucket="+r.Bucket)
+	}
+	if r.Endpoint != "" {
+		args = append(args, "--endpoint="+r.Endpoint)
+	}
+	if r.Region != "" {
+		args = append(args, "--region="+r.Region)
+	}
+	if r.AccessKey != "" {
+		args = append(args, "--access-key="+r.AccessKey)
+	}
+	if r.SecretKey != "" {
+		args = append(args, "--secret-access-key="+r.SecretKey)
+	}
+	if r.SessionTok != "" {
+		args = append(args, "--session-token="+r.SessionTok)
+	}
+	if r.Prefix != "" {
+		args = append(args, "--prefix="+r.Prefix)
+	}
+	if r.Path != "" {
+		args = append(args, "--path="+r.Path)
+	}
+	if r.DisableTLS {
+		args = append(args, "--disable-tls")
+	}
+	for k, v := range r.ExtraFlags {
+		if v == "" {
+			args = append(args, "--"+k)
+		} else {
+			args = append(args, "--"+k+"="+v)
+		}
+	}
+	return args
 }
 
 // BuildSourceConnectArgs returns the argv for `kopia repository
@@ -509,6 +565,41 @@ func BuildPolicyIgnoreArgs(p config.Profile) ([]string, error) {
 		args = append(args, "--add-ignore="+pattern)
 	}
 	return args, nil
+}
+
+// BuildPolicyRetentionArgs returns the "policy set --global --keep-*=N ..."
+// argv needed to apply a profile's Retention.Keep* values, or nil if none
+// are set. Targets the global policy for the same reason
+// BuildPolicyIgnoreArgs does: resticprofile-style retention is one property
+// of the profile, not per-source-path. Without this, the retention: block
+// in a profile was purely decorative - nothing ever issued the
+// corresponding kopia policy set --keep-* calls, so old snapshots were
+// never actually expired.
+func BuildPolicyRetentionArgs(p config.Profile) []string {
+	r := p.Retention
+	if r.IsZero() {
+		return nil
+	}
+	args := []string{"policy", "set", "--global"}
+	if r.KeepLatest > 0 {
+		args = append(args, fmt.Sprintf("--keep-latest=%d", r.KeepLatest))
+	}
+	if r.KeepHourly > 0 {
+		args = append(args, fmt.Sprintf("--keep-hourly=%d", r.KeepHourly))
+	}
+	if r.KeepDaily > 0 {
+		args = append(args, fmt.Sprintf("--keep-daily=%d", r.KeepDaily))
+	}
+	if r.KeepWeekly > 0 {
+		args = append(args, fmt.Sprintf("--keep-weekly=%d", r.KeepWeekly))
+	}
+	if r.KeepMonthly > 0 {
+		args = append(args, fmt.Sprintf("--keep-monthly=%d", r.KeepMonthly))
+	}
+	if r.KeepAnnual > 0 {
+		args = append(args, fmt.Sprintf("--keep-annual=%d", r.KeepAnnual))
+	}
+	return args
 }
 
 // BuildVerifyArgs returns kopia flags for a profile's verify section.

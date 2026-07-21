@@ -337,7 +337,7 @@ actions:
 | `init`         | `kopia repository create <type>`                |
 | `connect`      | `kopia repository connect <type>`               |
 | `copy`         | `kopia repository sync-to <target>` (see below) |
-| `check-index`  | `kopia index optimize`                          |
+| `check-index`  | `kopia index inspect --all`                     |
 
 If the action is `snapshot create` and you don't pass any source
 paths on the command line, `backup.sources` from the profile is

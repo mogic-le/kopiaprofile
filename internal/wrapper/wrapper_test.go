@@ -120,6 +120,32 @@ func TestBuildPolicyIgnoreArgsEmpty(t *testing.T) {
 	}
 }
 
+func TestBuildPolicyRetentionArgs(t *testing.T) {
+	p := config.Profile{
+		Retention: config.RetentionSection{
+			KeepDaily:   7,
+			KeepWeekly:  5,
+			KeepMonthly: 12,
+		},
+	}
+	args := BuildPolicyRetentionArgs(p)
+	want := []string{"policy", "set", "--global", "--keep-daily=7", "--keep-weekly=5", "--keep-monthly=12"}
+	if len(args) != len(want) {
+		t.Fatalf("BuildPolicyRetentionArgs = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Fatalf("BuildPolicyRetentionArgs = %v, want %v", args, want)
+		}
+	}
+}
+
+func TestBuildPolicyRetentionArgsEmpty(t *testing.T) {
+	if args := BuildPolicyRetentionArgs(config.Profile{}); args != nil {
+		t.Errorf("expected nil for a profile with no retention settings, got %v", args)
+	}
+}
+
 func TestBuildSnapshotArgsIgnoreIdentical(t *testing.T) {
 	p := config.Profile{Backup: config.BackupSection{IgnoreIdentical: true}}
 	args, err := BuildSnapshotArgs(p)

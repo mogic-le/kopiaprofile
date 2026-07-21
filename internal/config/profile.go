@@ -76,8 +76,10 @@ type BackupSection struct {
 }
 
 // RetentionSection describes the `retention:` block. The values are passed
-// to `kopia policy set --keep-*` once at init time; Kopia applies the
-// policy automatically thereafter.
+// to `kopia policy set --global --keep-*` before every snapshot action
+// (see BuildPolicyRetentionArgs / cmd/run.go), keeping the policy in sync
+// with the profile; Kopia expires old snapshots against it during
+// maintenance ("kopiaprofile <p> prune").
 type RetentionSection struct {
 	KeepLatest  int `yaml:"keep-latest"`
 	KeepHourly  int `yaml:"keep-hourly"`

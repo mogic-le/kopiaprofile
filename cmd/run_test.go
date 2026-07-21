@@ -54,3 +54,51 @@ func TestBuildKopiaArgsSnapshotListPassesThrough(t *testing.T) {
 		t.Errorf("backup.sources should not be injected for an explicit non-create action, got: %v", args)
 	}
 }
+
+// "check-index" used to map to "kopia index optimize", a mutating
+// compaction command gated behind --dangerous-commands=enabled - not
+// what a read-only "check" should run, and it fails out of the box.
+// It must map to the read-only "index inspect --all" instead.
+func TestBuildKopiaArgsCheckIndexIsReadOnly(t *testing.T) {
+	args, err := buildKopiaArgs(config.Profile{}, "check-index", nil)
+	if err != nil {
+		t.Fatalf("buildKopiaArgs: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if joined != "index inspect --all" {
+		t.Errorf(`expected "index inspect --all", got: %v`, args)
+	}
+}
+
+// The "connect" action used to emit a bare "repository connect <type>"
+// with no storage flags at all, because buildProfileFlags deliberately
+// never adds them for the "connect" subcommand (that suppression exists
+// for the copy action's source pre-connect, which is self-contained via
+// BuildSourceConnectArgs instead). It must build its own flags the same
+// way, via wrapper.BuildConnectArgs.
+func TestBuildKopiaArgsConnectIncludesStorageFlags(t *testing.T) {
+	p := config.Profile{
+		Repository: config.Repository{
+			Type:      "s3",
+			Bucket:    "my-bucket",
+			AccessKey: "AKID",
+			SecretKey: "SECRET",
+		},
+	}
+	args, err := buildKopiaArgs(p, "connect", nil)
+	if err != nil {
+		t.Fatalf("buildKopiaArgs: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"repository connect s3", "--bucket=my-bucket", "--access-key=AKID", "--secret-access-key=SECRET"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected %q in connect args, got: %v", want, args)
+		}
+	}
+}
+
+func TestBuildKopiaArgsConnectRequiresType(t *testing.T) {
+	if _, err := buildKopiaArgs(config.Profile{}, "connect", nil); err == nil {
+		t.Error("expected error when repository.type is unset")
+	}
+}
