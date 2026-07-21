@@ -18,6 +18,33 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.0] - 2026-07-21
+
+### Added
+
+- `repository create` now forwards the `object-lock:` profile block to kopia
+  as `--retention-mode` (uppercased to `COMPLIANCE`/`GOVERNANCE`, which is the
+  only form kopia's enum accepts) and `--retention-period`. Previously the
+  block was validated and recorded but never reached kopia, so `repository
+  create` ran without retention and the repository relied solely on a
+  bucket-level default retention. Letting kopia manage per-blob retention is
+  the setup kopia is designed for: it locks the data/index/format blobs
+  (prefixes `p`/`q`/`x`/`n`/`kopia.repository`/`kopia.blobcfg`) while leaving
+  session markers deletable.
+
+### Fixed
+
+- `backup.exclude` / `backup.exclude-file` are now applied via a
+  `kopia policy set --global --add-ignore=...` pre-command before each
+  snapshot, instead of being passed to `kopia snapshot create` as `--ignore=`.
+  `kopia snapshot create` has no `--ignore` flag at all (verified against
+  kopia 0.23.1: it fails with `unknown long flag '--ignore'`), so the 0.1.0
+  handling never actually worked - excludes silently did nothing and
+  everything under the source path was backed up. Ignore rules are policy
+  state in kopia; the pre-command is idempotent (kopia de-duplicates the
+  ignore list) so re-running it before every snapshot keeps the policy in
+  sync with the profile.
+
 ## [0.1.0] - 2026-07-20
 
 ### Added
@@ -93,5 +120,6 @@ Initial public release.
   E2E smoke test against a `kopia` filesystem backend.
 - GoReleaser v2 release pipeline with cosign keyless signing.
 
+[0.2.0]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.1.0
 [0.0.2]: https://github.com/mogic-le/kopiaprofile/releases/tag/v0.0.2

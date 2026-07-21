@@ -103,6 +103,29 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		}
 	}
 
+	// backup.exclude / backup.exclude-file have no kopia snapshot-create
+	// equivalent (kopia rejects "--ignore=" outright - verified against a
+	// real kopia 0.23.1); ignore rules are policy state. Apply them as a
+	// "kopia policy set --global --add-ignore=..." pre-command against
+	// the SAME already-connected repository (preKopiaConfigDir/
+	// preCacheDir stay empty, unlike the `copy` case above, so
+	// profile.Run does not redirect to a different kopia.config). This
+	// is idempotent - kopia's ignore list already de-duplicates - so
+	// running it before every snapshot is safe and keeps the policy in
+	// sync if the config's exclude list ever changes.
+	if action == "snapshot" || action == "snap" {
+		if ignoreArgs, ierr := wrapper.BuildPolicyIgnoreArgs(expanded); ierr != nil {
+			return ierr
+		} else if len(ignoreArgs) > 0 {
+			preCommand = ignoreArgs
+			pw, perr := secrets.FromProfile(expanded).Load()
+			if perr != nil {
+				return errorf("loading password for ignore policy: %w", perr)
+			}
+			prePassword = pw
+		}
+	}
+
 	// Run.
 	res, err := profile.Run(context.Background(), profile.RunOptions{
 		Profile:           expanded,

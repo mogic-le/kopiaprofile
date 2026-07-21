@@ -252,6 +252,26 @@ func buildProfileFlags(p config.Profile, command []string) []string {
 		if p.Repository.DisableTLS {
 			args = append(args, "--disable-tls")
 		}
+
+		// Object-Lock retention. Only valid on `repository create`
+		// (positionalType), where it initializes Kopia's own blobcfg
+		// retention so Kopia locks its data/index/format blobs itself
+		// (prefixes p/q/x/n/kopia.repository/kopia.blobcfg). This is NOT the
+		// same as a bucket default retention: Kopia deliberately leaves
+		// session markers unlocked so it can delete them at each flush.
+		// Passing these makes the object-lock config actually reach Kopia
+		// instead of relying solely on a bucket-level policy.
+		if positionalType && !p.Repository.ObjectLock.IsZero() {
+			mode := strings.ToLower(p.Repository.ObjectLock.Mode)
+			if mode != "" && mode != "none" {
+				// kopia's --retention-mode enum only accepts the uppercase
+				// forms GOVERNANCE / COMPLIANCE.
+				args = append(args, "--retention-mode="+strings.ToUpper(mode))
+				if p.Repository.ObjectLock.RetentionPeriod != "" {
+					args = append(args, "--retention-period="+p.Repository.ObjectLock.RetentionPeriod)
+				}
+			}
+		}
 	}
 
 	// Cache directory: only valid for `repository` subcommands.
@@ -374,10 +394,8 @@ func kopiaTagSpec(tag string, counter *int) string {
 // readIgnorePatterns reads a resticprofile-style exclude file (one glob
 // pattern per line, blank lines and "#" comments skipped) and returns the
 // patterns found. Kopia has no "--exclude-file=" flag of its own (ignore
-// rules are either per-directory .kopiaignore files or repository policy,
-// see kopia.io/docs/advanced/kopiaignore) - a snapshot-time exclude file
-// only works if the caller expands it into individual --ignore= flags
-// itself, which is what BuildSnapshotArgs does with this.
+// rules are either per-directory .kopiaignore files or repository policy -
+// see kopia.io/docs/advanced/kopiaignore and BuildPolicyIgnoreArgs).
 func readIgnorePatterns(path string) ([]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -431,18 +449,13 @@ func BuildSnapshotArgs(p config.Profile) ([]string, error) {
 		// the canonical form is `--no-send-snapshot-report`.
 		args = append(args, "--no-send-snapshot-report")
 	}
-	for _, ex := range p.Backup.Exclude {
-		args = append(args, "--ignore="+ex)
-	}
-	if p.Backup.ExcludeFile != "" {
-		patterns, err := readIgnorePatterns(p.Backup.ExcludeFile)
-		if err != nil {
-			return nil, fmt.Errorf("reading exclude-file %q: %w", p.Backup.ExcludeFile, err)
-		}
-		for _, pattern := range patterns {
-			args = append(args, "--ignore="+pattern)
-		}
-	}
+	// Excludes (Backup.Exclude / Backup.ExcludeFile) are NOT emitted
+	// here. "kopia snapshot create" has no "--ignore=" flag at all -
+	// verified live against a real kopia 0.23.1 ("kopia snapshot create
+	// --help" lists no such flag; passing one fails with "unknown long
+	// flag '--ignore'"). Ignore rules in kopia are policy-based, set
+	// via "kopia policy set --add-ignore=...". See BuildPolicyIgnoreArgs
+	// and cmd/run.go, which runs that as a pre-command before create.
 	for _, tag := range p.Backup.Tags {
 		// Kopia uses "key:value" tags and DE-DUPLICATES by key.
 		// A list of two bare tags like ["demo", "src"] would
@@ -466,6 +479,34 @@ func BuildSnapshotArgs(p config.Profile) ([]string, error) {
 				args = append(args, "--"+k+"="+v)
 			}
 		}
+	}
+	return args, nil
+}
+
+// BuildPolicyIgnoreArgs returns the "policy set --global --add-ignore=..."
+// argv needed to apply a profile's Backup.Exclude / Backup.ExcludeFile
+// patterns, or nil if there is nothing to apply. This targets the global
+// policy (applies to every source in the repository) rather than a
+// per-source-path policy, matching resticprofile's model where exclude/
+// exclude-file apply uniformly regardless of how many backup.sources are
+// configured. Returns (nil, nil) - not an error - when there is nothing to
+// set, so callers can skip running it.
+func BuildPolicyIgnoreArgs(p config.Profile) ([]string, error) {
+	var patterns []string
+	patterns = append(patterns, p.Backup.Exclude...)
+	if p.Backup.ExcludeFile != "" {
+		fromFile, err := readIgnorePatterns(p.Backup.ExcludeFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading exclude-file %q: %w", p.Backup.ExcludeFile, err)
+		}
+		patterns = append(patterns, fromFile...)
+	}
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	args := []string{"policy", "set", "--global"}
+	for _, pattern := range patterns {
+		args = append(args, "--add-ignore="+pattern)
 	}
 	return args, nil
 }

@@ -46,22 +46,41 @@ func TestBuildSnapshotArgsParallel(t *testing.T) {
 	}
 }
 
-func TestBuildSnapshotArgsExcludes(t *testing.T) {
-	p := config.Profile{Backup: config.BackupSection{Exclude: []string{"*.tmp", "**/node_modules"}}}
+func TestBuildSnapshotArgsNoIgnoreFlag(t *testing.T) {
+	// "kopia snapshot create" has no "--ignore=" flag - excludes must go
+	// through BuildPolicyIgnoreArgs (kopia policy set), not here. This
+	// locks in that BuildSnapshotArgs never regresses to emitting one.
+	p := config.Profile{Backup: config.BackupSection{Exclude: []string{"*.tmp"}, ExcludeFile: "/nonexistent"}}
 	args, err := BuildSnapshotArgs(p)
 	if err != nil {
 		t.Fatalf("BuildSnapshotArgs: %v", err)
 	}
+	for _, a := range args {
+		if strings.HasPrefix(a, "--ignore") {
+			t.Errorf("BuildSnapshotArgs must not emit --ignore flags, got: %v", args)
+		}
+	}
+}
+
+func TestBuildPolicyIgnoreArgsExcludes(t *testing.T) {
+	p := config.Profile{Backup: config.BackupSection{Exclude: []string{"*.tmp", "**/node_modules"}}}
+	args, err := BuildPolicyIgnoreArgs(p)
+	if err != nil {
+		t.Fatalf("BuildPolicyIgnoreArgs: %v", err)
+	}
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "--ignore=*.tmp") {
+	if !strings.HasPrefix(joined, "policy set --global") {
+		t.Errorf("expected \"policy set --global ...\", got: %v", args)
+	}
+	if !strings.Contains(joined, "--add-ignore=*.tmp") {
 		t.Errorf("exclude 1: %v", args)
 	}
-	if !strings.Contains(joined, "--ignore=**/node_modules") {
+	if !strings.Contains(joined, "--add-ignore=**/node_modules") {
 		t.Errorf("exclude 2: %v", args)
 	}
 }
 
-func TestBuildSnapshotArgsExcludeFile(t *testing.T) {
+func TestBuildPolicyIgnoreArgsExcludeFile(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "exclude-*.txt")
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
@@ -72,15 +91,15 @@ func TestBuildSnapshotArgsExcludeFile(t *testing.T) {
 	f.Close()
 
 	p := config.Profile{Backup: config.BackupSection{ExcludeFile: f.Name()}}
-	args, err := BuildSnapshotArgs(p)
+	args, err := BuildPolicyIgnoreArgs(p)
 	if err != nil {
-		t.Fatalf("BuildSnapshotArgs: %v", err)
+		t.Fatalf("BuildPolicyIgnoreArgs: %v", err)
 	}
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "--ignore=/proc") {
+	if !strings.Contains(joined, "--add-ignore=/proc") {
 		t.Errorf("missing /proc: %v", args)
 	}
-	if !strings.Contains(joined, "--ignore=/sys") {
+	if !strings.Contains(joined, "--add-ignore=/sys") {
 		t.Errorf("missing /sys: %v", args)
 	}
 	if strings.Contains(joined, "comment") {
@@ -88,10 +107,16 @@ func TestBuildSnapshotArgsExcludeFile(t *testing.T) {
 	}
 }
 
-func TestBuildSnapshotArgsExcludeFileMissing(t *testing.T) {
+func TestBuildPolicyIgnoreArgsExcludeFileMissing(t *testing.T) {
 	p := config.Profile{Backup: config.BackupSection{ExcludeFile: "/nonexistent/does-not-exist.txt"}}
-	if _, err := BuildSnapshotArgs(p); err == nil {
+	if _, err := BuildPolicyIgnoreArgs(p); err == nil {
 		t.Error("expected an error for a missing exclude-file, got nil")
+	}
+}
+
+func TestBuildPolicyIgnoreArgsEmpty(t *testing.T) {
+	if args, err := BuildPolicyIgnoreArgs(config.Profile{}); err != nil || args != nil {
+		t.Errorf("expected (nil, nil) for a profile with no excludes, got (%v, %v)", args, err)
 	}
 }
 
@@ -313,5 +338,50 @@ func TestBuildSourceConnectArgsFilesystem(t *testing.T) {
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "filesystem --path=/var/lib/kopia-source") {
 		t.Errorf("filesystem source not rendered: %v", args)
+	}
+}
+
+func TestBuildProfileFlagsObjectLockOnCreate(t *testing.T) {
+	p := config.Profile{
+		Repository: config.Repository{
+			Type:   "s3",
+			Bucket: "b",
+			ObjectLock: config.ObjectLockConfig{
+				Mode:            "compliance",
+				RetentionPeriod: "720h",
+			},
+		},
+	}
+
+	// On "repository create" the object-lock config must reach kopia as
+	// --retention-mode (uppercased) and --retention-period.
+	create := strings.Join(buildProfileFlags(p, []string{"repository", "create"}), " ")
+	if !strings.Contains(create, "--retention-mode=COMPLIANCE") {
+		t.Errorf("missing --retention-mode=COMPLIANCE on create: %v", create)
+	}
+	if !strings.Contains(create, "--retention-period=720h") {
+		t.Errorf("missing --retention-period=720h on create: %v", create)
+	}
+
+	// On "repository connect" retention flags must NOT be emitted (they are
+	// create-only; blobcfg already holds retention once the repo exists).
+	connect := strings.Join(buildProfileFlags(p, []string{"repository", "connect"}), " ")
+	if strings.Contains(connect, "--retention-mode") || strings.Contains(connect, "--retention-period") {
+		t.Errorf("retention flags must not appear on connect: %v", connect)
+	}
+}
+
+func TestBuildProfileFlagsObjectLockNoneOmitted(t *testing.T) {
+	p := config.Profile{
+		Repository: config.Repository{
+			Type:       "s3",
+			Bucket:     "b",
+			ObjectLock: config.ObjectLockConfig{Mode: "none", RetentionPeriod: "720h"},
+		},
+	}
+
+	create := strings.Join(buildProfileFlags(p, []string{"repository", "create"}), " ")
+	if strings.Contains(create, "--retention-mode") {
+		t.Errorf("mode=none must not emit --retention-mode: %v", create)
 	}
 }

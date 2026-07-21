@@ -24,13 +24,17 @@ type Repository struct {
 	ExtraFlags map[string]string `yaml:"extra-flags"`
 }
 
-// ObjectLockConfig describes S3 Object-Lock settings. The actual
-// configuration lives at the bucket level (it is set with `aws s3api
-// put-object-lock-configuration`); kopiaprofile only validates, records
-// the intent and configures Kopia's "extend on maintenance" toggle.
+// ObjectLockConfig describes S3 Object-Lock settings. The bucket itself
+// must be created with Object Lock enabled out-of-band (e.g. `aws s3api
+// create-bucket --object-lock-enabled-for-bucket`); kopiaprofile then
+// passes Mode/RetentionPeriod to `kopia repository create` so Kopia manages
+// per-blob retention itself (prefixes p/q/x/n/kopia.repository/kopia.blobcfg),
+// which is the setup Kopia is designed for and which leaves session markers
+// deletable. Do NOT additionally configure a bucket default retention unless
+// running a Kopia build that tolerates retention-locked session markers.
 type ObjectLockConfig struct {
 	Mode                string `yaml:"mode"`                  // compliance | governance | none
-	RetentionPeriod     string `yaml:"retention-period"`      // hint for the operator; not directly used by Kopia
+	RetentionPeriod     string `yaml:"retention-period"`      // Go duration, e.g. "720h"; passed to kopia repository create --retention-period
 	ExtendOnMaintenance bool   `yaml:"extend-on-maintenance"` // sets kopia maintenance set --extend-object-locks
 }
 
