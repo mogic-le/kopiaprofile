@@ -102,3 +102,23 @@ func TestBuildKopiaArgsConnectRequiresType(t *testing.T) {
 		t.Error("expected error when repository.type is unset")
 	}
 }
+
+// Only actions that are actually part of the backup lifecycle may touch
+// the monitor status file - a diagnostic command like "check-index"
+// overwriting the last real backup's recorded status is exactly the bug
+// this guards against (observed live: it made an Icinga check report
+// "no recent backup" right after a snapshot had actually succeeded).
+func TestIsMonitoredAction(t *testing.T) {
+	monitored := []string{"snapshot", "snap", "prune"}
+	for _, a := range monitored {
+		if !isMonitoredAction(a) {
+			t.Errorf("isMonitoredAction(%q) = false, want true", a)
+		}
+	}
+	notMonitored := []string{"check-index", "display", "status", "connect", "init", "snapshots", "mount", "restore", "verify", "copy", "forget", ""}
+	for _, a := range notMonitored {
+		if isMonitoredAction(a) {
+			t.Errorf("isMonitoredAction(%q) = true, want false", a)
+		}
+	}
+}

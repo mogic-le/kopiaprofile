@@ -18,6 +18,18 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.5] - 2026-07-22
+
+### Fixed
+
+- The monitor status file was overwritten by every action, not just
+  backups - running a diagnostic command like `check-index` after a
+  successful snapshot made monitoring report "no recent backup" even
+  though the backup had genuinely succeeded (observed live). Only
+  `snapshot`/`snap` and `prune` now write to it; read-only/administrative
+  actions (`check-index`, `display`, `status`, `connect`, ...) leave the
+  last recorded backup status untouched.
+
 ## [0.2.4] - 2026-07-22
 
 ### Fixed

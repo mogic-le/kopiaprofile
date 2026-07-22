@@ -142,6 +142,10 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 	}
 
 	// Run.
+	var monitorManager *monitor.Manager
+	if isMonitoredAction(action) {
+		monitorManager = buildMonitorForProfile(cfg, expanded)
+	}
 	res, err := profile.Run(context.Background(), profile.RunOptions{
 		Profile:           expanded,
 		Command:           kopiaArgs,
@@ -150,7 +154,7 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		Logger:            rootLogger(flags),
 		DryRun:            dryRun,
 		Timeout:           24 * time.Hour,
-		MonitorManager:    buildMonitorForProfile(cfg, expanded),
+		MonitorManager:    monitorManager,
 		PreCommand:        preCommand,
 		PrePassword:       prePassword,
 		PreKopiaConfigDir: preKopiaConfigDir,
@@ -164,6 +168,27 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		Print("kopia exited with code %d in %s", res.Kopia.ExitCode, res.Duration)
 	}
 	return nil
+}
+
+// isMonitoredAction reports whether an action represents a backup
+// lifecycle event worth recording in the monitor status file -
+// "snapshot"/"snap" (the backup itself) and "prune" (maintenance,
+// where kopia's retention policy actually gets enforced). Read-only or
+// administrative actions (check-index, display, status, connect, ...)
+// must NOT touch the status file: it is shared per-profile, and a
+// diagnostic command overwriting it would hide the last real backup's
+// outcome from monitoring - observed live: a manual "check-index" run
+// made an Icinga check report "no recent backup" right after a
+// snapshot had actually succeeded. resticprofile does not have this
+// failure mode at all, because its status JSON is structurally only
+// ever about backup/retention, never "whatever ran last".
+func isMonitoredAction(action string) bool {
+	switch action {
+	case "snapshot", "snap", "prune":
+		return true
+	default:
+		return false
+	}
 }
 
 // buildMonitorForProfile creates a monitor.Manager from a profile's
