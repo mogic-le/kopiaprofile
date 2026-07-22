@@ -3,6 +3,7 @@ package monitor
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -12,6 +13,9 @@ import (
 // so writeStatusFile must explicitly chmod before renaming - regression
 // test for that fix.
 func TestWriteStatusFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no POSIX permission bits to assert on")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "backup-status.json")
 
