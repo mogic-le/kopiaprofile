@@ -189,6 +189,16 @@ func writeStatusFile(path string, st Status) error {
 		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())
 	}()
+	// os.CreateTemp always creates with mode 0600 regardless of umask, and
+	// a rename doesn't change that - the status file otherwise ends up
+	// unreadable by a non-root monitoring user (observed live: kopia's
+	// backup-status.json at 0600 vs. restic's equivalent at 0644). The
+	// file only ever holds run metadata (profile name, action, exit code,
+	// timestamps) - never a secret - so a world-readable status file is
+	// intentional here, matching resticprofile's own status file.
+	if err := tmp.Chmod(0o644); err != nil {
+		return err
+	}
 	enc := json.NewEncoder(tmp)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(st); err != nil {

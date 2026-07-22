@@ -18,6 +18,16 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.3] - 2026-07-22
+
+### Fixed
+
+- The status file (`monitor.status-file`) was written with mode 0600
+  (`os.CreateTemp`'s default, unaffected by the later rename), unreadable
+  by a non-root monitoring user - observed live against resticprofile's
+  equivalent file, which is 0644. Now explicitly chmod'd to 0644 before the
+  rename; the file only ever holds run metadata, never a secret.
+
 ## [0.2.2] - 2026-07-21
 
 ### Fixed
