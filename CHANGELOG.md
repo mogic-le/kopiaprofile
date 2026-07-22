@@ -18,6 +18,15 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.6] - 2026-07-22
+
+### Fixed
+
+- `TestWriteStatusFilePermissions` (added in 0.2.5) asserted a POSIX 0644
+  mode unconditionally, failing CI on windows-latest (Windows reports 0666
+  instead - it has no POSIX permission bits at all). Test now skips the
+  assertion on Windows.
+
 ## [0.2.5] - 2026-07-22
 
 ### Fixed
