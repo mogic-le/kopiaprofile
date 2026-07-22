@@ -18,6 +18,14 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.4] - 2026-07-22
+
+### Fixed
+
+- Bumped `golang.org/x/text` v0.25.0 -> v0.39.0 (transitive, via hclparse),
+  fixing GO-2026-5970 (infinite loop on invalid input) that was failing
+  `govulncheck` in CI.
+
 ## [0.2.3] - 2026-07-22
 
 ### Fixed
