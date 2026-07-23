@@ -14,7 +14,6 @@ import (
 	"os"
 	"sort"
 	"strings"
-	"syscall"
 )
 
 // DuplicateGroup is a set of mountpoints that all resolve to the same
@@ -37,7 +36,7 @@ func DetectDuplicates(mountsFile string, roots []string) ([]DuplicateGroup, erro
 	if err != nil {
 		return nil, fmt.Errorf("opening %q: %w", mountsFile, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	byDev := make(map[uint64][]string)
 	scanner := bufio.NewScanner(f)
@@ -53,17 +52,13 @@ func DetectDuplicates(mountsFile string, roots []string) ([]DuplicateGroup, erro
 		if !underAnyRoot(mountpoint, roots) {
 			continue
 		}
-		info, statErr := os.Stat(mountpoint)
-		if statErr != nil {
-			// Gone, or not reachable from here (e.g. a stale entry) -
+		dev, ok := deviceOf(mountpoint)
+		if !ok {
+			// Gone, not reachable from here, or (on a platform with no
+			// concept of a device number, e.g. Windows) undetectable -
 			// nothing to deduplicate against.
 			continue
 		}
-		st, ok := info.Sys().(*syscall.Stat_t)
-		if !ok {
-			continue
-		}
-		dev := uint64(st.Dev) // #nosec G115 -- st.Dev is already unsigned on Linux
 		byDev[dev] = append(byDev[dev], mountpoint)
 	}
 	if err := scanner.Err(); err != nil {
