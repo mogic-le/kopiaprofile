@@ -18,6 +18,19 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.7] - 2026-07-22
+
+### Fixed
+
+- Release binaries embedded the source's `X.Y.Z-dev` default version
+  string instead of the real tag, all the way back to v0.0.1: GoReleaser
+  set `-X main.version=...`, but the variable lives in package `cmd`
+  (`cmd/version.go`), not `main` - the linker silently ignores an `-X`
+  target that doesn't exist rather than failing the build. Verified by
+  extracting the embedded string from a downloaded v0.2.6 release binary.
+  Also dropped `-X main.commit/date/builtBy`, equally dead - nothing in
+  the codebase declares those variables in any package.
+
 ## [0.2.6] - 2026-07-22
 
 ### Fixed
