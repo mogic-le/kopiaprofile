@@ -49,6 +49,7 @@ type Status struct {
 	Error    string        `json:"error,omitempty"`
 	Hostname string        `json:"hostname"`
 	Kopia    *KopiaStatus  `json:"kopia,omitempty"`
+	Warnings []string      `json:"warnings,omitempty"`
 }
 
 // HookStatus records the outcome of a single run-* hook.
@@ -138,6 +139,7 @@ func toStatus(pr *types.RunResult) Status {
 	}
 	st.Hostname = pr.Hostname
 	st.Error = pr.Error
+	st.Warnings = pr.Warnings
 	for _, h := range pr.Hooks {
 		hs := HookStatus{
 			Phase:    h.Phase,
