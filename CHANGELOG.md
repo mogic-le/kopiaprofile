@@ -23,14 +23,12 @@ maintainer's checklist.
 ### Fixed
 
 - `FileLoader` (password source `file`) skipped lines starting with `#`
-  as comments. A machine-generated password that happens to start with
-  `#` left a single-line password file with no non-comment line at all,
-  so the lookup failed with "password not found" and every backup for
-  that host failed before ever touching the repository. Found live on a
-  freshly onboarded host. Comments served no real purpose here - these
-  files are rendered by Ansible from Vault, never hand-edited - so the
-  fix removes comment-skipping entirely: the first non-empty line is now
-  always taken verbatim as the password.
+  as comments. A generated password that happens to start with `#` left
+  a single-line password file with no non-comment line at all, so the
+  lookup failed with "password not found" and the backup failed before
+  ever touching the repository. Found live on a freshly onboarded host.
+  The fix removes comment-skipping entirely: the first non-empty line is
+  now always taken verbatim as the password.
 
 ## [0.2.8] - 2026-07-23
 
