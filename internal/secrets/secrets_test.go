@@ -31,10 +31,30 @@ func TestFileLoaderMissing(t *testing.T) {
 	}
 }
 
-func TestFileLoaderSkipsComment(t *testing.T) {
+func TestFileLoaderPasswordStartingWithHash(t *testing.T) {
+	// A machine-generated password may start with "#" - it must be read
+	// verbatim, not treated as a comment line to skip (that previously
+	// left a single-line file like this with no line at all, i.e.
+	// ErrNotFound, for every host whose generated password happened to
+	// start with "#").
 	dir := t.TempDir()
 	p := filepath.Join(dir, "pw")
-	if err := os.WriteFile(p, []byte("# comment\nhunter2\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte("#L!k$5IWoI?as10Z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := FileLoader{Path: p}.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "#L!k$5IWoI?as10Z" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestFileLoaderSkipsBlankLines(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "pw")
+	if err := os.WriteFile(p, []byte("\n\nhunter2\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := FileLoader{Path: p}.Load()
