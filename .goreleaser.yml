@@ -49,10 +49,16 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.ShortCommit}}
-      - -X main.date={{.CommitDate}}
-      - -X main.builtBy=goreleaser
+      # version lives in package cmd (cmd/version.go), not main - an
+      # -X main.version target is silently ignored by the linker (no
+      # build error), which is exactly what happened here: every past
+      # release (v0.0.1 through v0.2.6) shipped with the source's
+      # hardcoded "X.Y.Z-dev" default baked in instead of the real tag,
+      # verified by extracting the string from a downloaded v0.2.6
+      # release binary. commit/date/builtBy dropped - nothing in the
+      # codebase declares those vars in any package, so they were
+      # equally dead no-ops, not real build metadata.
+      - -X github.com/mogic-le/kopiaprofile/cmd.version={{.Version}}
 
 archives:
   - id: kopiaprofile-default
