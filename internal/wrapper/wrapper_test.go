@@ -72,6 +72,9 @@ func TestBuildPolicyIgnoreArgsExcludes(t *testing.T) {
 	if !strings.HasPrefix(joined, "policy set --global") {
 		t.Errorf("expected \"policy set --global ...\", got: %v", args)
 	}
+	if !strings.Contains(joined, "--clear-ignore") {
+		t.Errorf("expected --clear-ignore so stale patterns don't stick around, got: %v", args)
+	}
 	if !strings.Contains(joined, "--add-ignore=*.tmp") {
 		t.Errorf("exclude 1: %v", args)
 	}
