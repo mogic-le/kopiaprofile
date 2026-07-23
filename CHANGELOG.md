@@ -18,6 +18,20 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.2.8] - 2026-07-23
+
+### Fixed
+
+- `policy set --global --add-ignore=...` (run before every snapshot to sync
+  a profile's `exclude`/`exclude-file` into kopia's repository policy) was
+  purely additive: a pattern removed from the exclude file stayed stuck in
+  the global ignore list forever, silently continuing to exclude real data
+  on every subsequent run. Found live: a host's data volume mounted at
+  `/mnt` kept getting excluded from backups even after `/mnt` was removed
+  from its exclude file, because the previous run had already added it to
+  the policy. Fixed by prefixing the command with `--clear-ignore` so each
+  run fully replaces the ignore list instead of merging into it.
+
 ## [0.2.7] - 2026-07-22
 
 ### Fixed

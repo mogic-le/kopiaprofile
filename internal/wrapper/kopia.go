@@ -560,7 +560,10 @@ func BuildPolicyIgnoreArgs(p config.Profile) ([]string, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
-	args := []string{"policy", "set", "--global"}
+	// --clear-ignore first: --add-ignore alone is purely additive, so a
+	// pattern removed from Exclude/ExcludeFile since the last run would
+	// otherwise stay stuck in the repository's global policy forever.
+	args := []string{"policy", "set", "--global", "--clear-ignore"}
 	for _, pattern := range patterns {
 		args = append(args, "--add-ignore="+pattern)
 	}
