@@ -71,6 +71,11 @@ type RunOptions struct {
 	// PreCacheDir is the --cache-directory for the pre-command.
 	// Defaults to the main profile's CacheDir if empty.
 	PreCacheDir string
+	// Warnings are non-fatal findings the caller made before invoking
+	// Run (e.g. mounts.DetectDuplicates results). They are copied
+	// through to the Result and on to the monitor status file/push, but
+	// never affect ExitCode or Err.
+	Warnings []string
 }
 
 // Result is the outcome of a profile run.
@@ -84,6 +89,7 @@ type Result struct {
 	Hooks    []HookResult
 	Kopia    *wrapper.Result
 	Err      error
+	Warnings []string
 }
 
 // HookResult records the execution of a single hook.
@@ -107,9 +113,10 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		opts.Logger = slog.Default()
 	}
 	res := &Result{
-		Profile: opts.Profile.Name,
-		Command: strings.Join(opts.Command, " "),
-		StartAt: time.Now(),
+		Profile:  opts.Profile.Name,
+		Command:  strings.Join(opts.Command, " "),
+		StartAt:  time.Now(),
+		Warnings: opts.Warnings,
 	}
 	// Set ExitCode to the kopia result's exit code as we discover it.
 	defer func() {
@@ -335,6 +342,7 @@ func resultToMonitor(r *Result) *types.RunResult {
 		EndAt:    r.EndAt,
 		Duration: r.Duration,
 		Hooks:    make([]types.RunHookResult, 0, len(r.Hooks)),
+		Warnings: r.Warnings,
 	}
 	if host, err := os.Hostname(); err == nil {
 		out.Hostname = host

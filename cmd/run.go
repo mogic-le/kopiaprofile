@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mogic-le/kopiaprofile/internal/config"
 	"github.com/mogic-le/kopiaprofile/internal/monitor"
+	"github.com/mogic-le/kopiaprofile/internal/mounts"
 	"github.com/mogic-le/kopiaprofile/internal/profile"
 	"github.com/mogic-le/kopiaprofile/internal/secrets"
 	"github.com/mogic-le/kopiaprofile/internal/wrapper"
@@ -141,6 +143,21 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		}
 	}
 
+	// Warn (never fail) about the same filesystem being reachable from
+	// more than one path inside this profile's backup sources, which
+	// would otherwise scan and hash the same data twice per run. See
+	// internal/mounts.
+	var mountWarnings []string
+	if action == "snapshot" || action == "snap" {
+		if groups, merr := mounts.DetectDuplicates("", expanded.Backup.Sources); merr == nil {
+			for _, g := range groups {
+				w := fmt.Sprintf("same filesystem mounted at multiple backup paths: %s", strings.Join(g.Paths, ", "))
+				mountWarnings = append(mountWarnings, w)
+				Print("WARNING: %s", w)
+			}
+		}
+	}
+
 	// Run.
 	var monitorManager *monitor.Manager
 	if isMonitoredAction(action) {
@@ -159,6 +176,7 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		PrePassword:       prePassword,
 		PreKopiaConfigDir: preKopiaConfigDir,
 		PreCacheDir:       preCacheDir,
+		Warnings:          mountWarnings,
 	})
 	if err != nil {
 		Print("profile %q failed: %v", profileName, err)

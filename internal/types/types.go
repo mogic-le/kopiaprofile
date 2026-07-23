@@ -28,6 +28,7 @@ type RunResult struct {
 	Hostname string
 	Hooks    []RunHookResult
 	Kopia    *KopiaResult
+	Warnings []string
 }
 
 // RunHookResult records the outcome of a single run-* hook.

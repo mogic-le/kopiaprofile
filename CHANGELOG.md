@@ -18,6 +18,21 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.3.0] - 2026-07-23
+
+### Added
+
+- Duplicate-mount detection (`internal/mounts`): before every `snapshot`,
+  kopiaprofile now scans for the same filesystem being reachable from
+  more than one path inside the profile's `backup.sources` - the common
+  case where an auto-mounted volume is also mounted or bind-mounted
+  wherever the application actually expects it, without the original
+  mount ever being removed. Found live: a volume mounted both at its
+  auto-mount path and at the application's data directory, which would
+  have scanned and hashed the same data twice every run. This is a
+  warning, not a failure - it's printed and recorded in the status
+  file's new `warnings` field, not treated as an error.
+
 ## [0.2.9] - 2026-07-23
 
 ### Fixed
