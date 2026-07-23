@@ -18,13 +18,9 @@ type FileLoader struct {
 // Load reads the password from disk. The first non-empty line is taken
 // verbatim as the password - including one that happens to start with
 // "#". An earlier version skipped "#"-prefixed lines as comments, which
-// silently broke on any machine-generated password whose first character
-// was "#" (a valid character in this project's password generator):
-// a single-line file like that has no non-comment line at all, so the
-// old code returned ErrNotFound and every backup for that host failed at
-// the password lookup. Password files here are machine-rendered by
-// Ansible from Vault, never hand-annotated, so there is no real comment
-// use case to preserve.
+// silently broke on any generated password whose first character was
+// "#": a single-line file like that has no non-comment line at all, so
+// the old code returned ErrNotFound and the password lookup failed.
 func (f FileLoader) Load() (string, error) {
 	if f.Path == "" {
 		return "", errors.New("file loader: empty path")
