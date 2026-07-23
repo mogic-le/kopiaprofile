@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -24,6 +25,9 @@ func writeMountsFile(t *testing.T, entries [][2]string) string {
 }
 
 func TestDetectDuplicatesSameFilesystemTwoMountpoints(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("deviceOf has no device-number equivalent on Windows")
+	}
 	// a and b live in the same t.TempDir() and therefore share the same
 	// underlying filesystem (st_dev) - exactly what a bind mount or a
 	// second independent mount of the same block device looks like.
