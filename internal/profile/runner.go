@@ -54,11 +54,18 @@ type RunOptions struct {
 	// MonitorManager is invoked with the result of the run. May be nil.
 	MonitorManager *monitor.Manager
 
-	// PreCommand, if non-empty, is run BEFORE the main kopia command
-	// and before any run-before hook. It is used by the `copy`
-	// action to connect to the source repository first. The runner
-	// blocks on this command and treats non-zero exit as fatal.
-	PreCommand []string
+	// PreCommands, if non-empty, are run in order BEFORE the main kopia
+	// command and before any run-before hook. Used by the `copy` action
+	// to connect to the source repository first, and by `snapshot` to
+	// sync the global ignore-rule policy. Multiple, separately-invoked
+	// commands rather than one combined invocation: kopia's own "policy
+	// set --clear-ignore --add-ignore=..." silently drops every
+	// --add-ignore when --clear-ignore is present in the SAME
+	// invocation - clearing and adding must be two separate kopia
+	// processes. The runner blocks on each in sequence and treats a
+	// non-zero exit as fatal (aborting before the next PreCommand or
+	// the main command).
+	PreCommands [][]string
 	// PrePassword is the KOPIA_PASSWORD to set for the PreCommand.
 	// Use a different password than the main one when the source and
 	// target repositories have different passwords.
@@ -127,10 +134,14 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		}
 	}()
 
-	// Run pre-command (e.g. "kopia repository connect <source>" for
-	// the copy action). Failure here is fatal; we don't run run-fail
-	// hooks for the pre-command because the main command never ran.
-	if len(opts.PreCommand) > 0 {
+	// Run pre-commands in order (e.g. "kopia repository connect <source>"
+	// for the copy action). Failure here is fatal; we don't run
+	// run-fail hooks for a pre-command because the main command never
+	// ran.
+	for _, preCommand := range opts.PreCommands {
+		if len(preCommand) == 0 {
+			continue
+		}
 		preBinary := opts.Profile.KopiaBinary
 		if preBinary == "" {
 			preBinary = "kopia"
@@ -148,7 +159,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		preRunner, perr := wrapper.New(wrapper.Options{
 			KopiaBinary: preBinary,
 			Profile:     preProfile,
-			Command:     opts.PreCommand,
+			Command:     preCommand,
 			Password:    opts.PrePassword,
 			Stdin:       opts.Stdin,
 			Stdout:      opts.Writer,

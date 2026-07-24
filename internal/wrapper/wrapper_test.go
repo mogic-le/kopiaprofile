@@ -72,8 +72,8 @@ func TestBuildPolicyIgnoreArgsExcludes(t *testing.T) {
 	if !strings.HasPrefix(joined, "policy set --global") {
 		t.Errorf("expected \"policy set --global ...\", got: %v", args)
 	}
-	if !strings.Contains(joined, "--clear-ignore") {
-		t.Errorf("expected --clear-ignore so stale patterns don't stick around, got: %v", args)
+	if strings.Contains(joined, "--clear-ignore") {
+		t.Errorf("--clear-ignore must NOT be combined with --add-ignore in the same invocation (kopia drops the adds), got: %v", args)
 	}
 	if !strings.Contains(joined, "--add-ignore=*.tmp") {
 		t.Errorf("exclude 1: %v", args)
@@ -122,6 +122,14 @@ func TestBuildPolicyIgnoreArgsExcludeFileMissing(t *testing.T) {
 func TestBuildPolicyIgnoreArgsEmpty(t *testing.T) {
 	if args, err := BuildPolicyIgnoreArgs(config.Profile{}); err != nil || args != nil {
 		t.Errorf("expected (nil, nil) for a profile with no excludes, got (%v, %v)", args, err)
+	}
+}
+
+func TestBuildPolicyClearIgnoreArgs(t *testing.T) {
+	args := BuildPolicyClearIgnoreArgs()
+	joined := strings.Join(args, " ")
+	if joined != "policy set --global --clear-ignore" {
+		t.Errorf("got: %v", args)
 	}
 }
 

@@ -78,12 +78,12 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 	// repository first, with a possibly different password AND
 	// its own kopia.config / cache directory so the connect
 	// doesn't overwrite the target's kopia.config.
-	var preCommand []string
+	var preCommands [][]string
 	var prePassword string
 	var preKopiaConfigDir string
 	var preCacheDir string
 	if action == "copy" {
-		preCommand = wrapper.BuildSourceConnectArgs(expanded.Copy.Source)
+		preCommands = [][]string{wrapper.BuildSourceConnectArgs(expanded.Copy.Source)}
 		if !expanded.Copy.Source.Password.IsZero() {
 			srcProf := expanded
 			srcProf.Password = expanded.Copy.Source.Password
@@ -108,20 +108,25 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 	// backup.exclude / backup.exclude-file and retention.keep-* have no
 	// kopia snapshot-create equivalent (kopia rejects "--ignore=" and has
 	// no per-invocation retention flag - verified against a real kopia
-	// 0.23.1); both are policy state. Apply them together as a single
-	// "kopia policy set --global --add-ignore=... --keep-*=..."
-	// pre-command against the SAME already-connected repository
-	// (preKopiaConfigDir/preCacheDir stay empty, unlike the `copy` case
-	// above, so profile.Run does not redirect to a different
-	// kopia.config). This is idempotent - kopia's policy set already
-	// de-duplicates ignore entries and simply overwrites keep-* values -
-	// so running it before every snapshot is safe and keeps the policy
-	// in sync if the profile's exclude/retention settings ever change.
+	// 0.23.1); both are policy state, applied as pre-commands against
+	// the SAME already-connected repository (preKopiaConfigDir/
+	// preCacheDir stay empty, unlike the `copy` case above, so
+	// profile.Run does not redirect to a different kopia.config).
+	// Running this before every snapshot is safe and keeps the policy in
+	// sync if the profile's exclude/retention settings ever change.
+	//
+	// The clear and the add-ignore/keep-* are two SEPARATE kopia
+	// invocations, not one combined command - see
+	// wrapper.BuildPolicyClearIgnoreArgs's doc comment for why
+	// combining them silently drops every --add-ignore.
 	if action == "snapshot" || action == "snap" {
 		var policyArgs []string
 		ignoreArgs, ierr := wrapper.BuildPolicyIgnoreArgs(expanded)
 		if ierr != nil {
 			return ierr
+		}
+		if len(ignoreArgs) > 0 {
+			preCommands = append(preCommands, wrapper.BuildPolicyClearIgnoreArgs())
 		}
 		policyArgs = append(policyArgs, ignoreArgs...)
 		if retentionArgs := wrapper.BuildPolicyRetentionArgs(expanded); len(retentionArgs) > 0 {
@@ -134,7 +139,7 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 			}
 		}
 		if len(policyArgs) > 0 {
-			preCommand = policyArgs
+			preCommands = append(preCommands, policyArgs)
 			pw, perr := secrets.FromProfile(expanded).Load()
 			if perr != nil {
 				return errorf("loading password for policy: %w", perr)
@@ -172,7 +177,7 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		DryRun:            dryRun,
 		Timeout:           24 * time.Hour,
 		MonitorManager:    monitorManager,
-		PreCommand:        preCommand,
+		PreCommands:       preCommands,
 		PrePassword:       prePassword,
 		PreKopiaConfigDir: preKopiaConfigDir,
 		PreCacheDir:       preCacheDir,
