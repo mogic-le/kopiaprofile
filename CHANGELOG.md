@@ -18,6 +18,23 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.4.0] - 2026-07-24
+
+### Added
+
+- `internal/sysmem`: `backup.parallel` is now clamped to what the host's
+  currently-available memory can plausibly support, not just used as
+  configured. A fixed fleet-wide (or even per-host) `--parallel` value
+  can't account for how much memory is free at backup time - that
+  depends on whatever else is running on the host, not just its
+  installed RAM. Found live: a host with 7.6GB RAM and no swap, already
+  busy with Docker/MinIO/Traefik, was kernel-OOM-killed mid-scan at
+  `parallel=8` (confirmed via dmesg, not a cgroup limit). The clamp only
+  ever narrows the configured value based on `/proc/meminfo`'s
+  `MemAvailable` (budgeting ~512MB/worker, using at most 70% of what's
+  currently free) - it never raises it, never invents a value, and is a
+  no-op on platforms without `/proc/meminfo`.
+
 ## [0.3.1] - 2026-07-24
 
 ### Fixed

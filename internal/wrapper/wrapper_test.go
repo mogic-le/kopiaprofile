@@ -1,6 +1,7 @@
 package wrapper
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -35,14 +36,29 @@ func TestBuildSnapshotArgsTags(t *testing.T) {
 }
 
 func TestBuildSnapshotArgsParallel(t *testing.T) {
+	// The emitted value is sysmem.ClampParallel(8), which depends on the
+	// test machine's real available memory - it may legitimately be
+	// anything from 1 to 8 depending on environment, never 0 or absent
+	// and never above the configured value. See sysmem's own tests for
+	// the clamping arithmetic itself.
 	p := config.Profile{Backup: config.BackupSection{Parallel: 8}}
 	args, err := BuildSnapshotArgs(p)
 	if err != nil {
 		t.Fatalf("BuildSnapshotArgs: %v", err)
 	}
-	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "--parallel=8") {
-		t.Errorf("parallel not set: %v", args)
+	var n int
+	found := false
+	for _, a := range args {
+		if _, err := fmt.Sscanf(a, "--parallel=%d", &n); err == nil {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("parallel not set: %v", args)
+	}
+	if n < 1 || n > 8 {
+		t.Errorf("--parallel=%d, want 1..8: %v", n, args)
 	}
 }
 
