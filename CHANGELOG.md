@@ -18,6 +18,26 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.3.1] - 2026-07-24
+
+### Fixed
+
+- **Critical regression from 0.2.9/0.3.0**: `kopia policy set --global
+  --clear-ignore --add-ignore=...` (issued as a single combined
+  pre-command) silently drops every `--add-ignore` when `--clear-ignore`
+  is present in the same invocation - verified live against a real
+  kopia 0.23.1 repository, reproduced on demand. Since 0.2.9 introduced
+  `--clear-ignore` to fix the previous stale-ignore-list bug, every
+  snapshot has actually been running with an EMPTY global ignore list -
+  no excludes applied at all. This is what caused the `/sys/kernel/
+  tracing` hang fixed at the fleet-config level to keep recurring even
+  after the exclude was added: the exclude was never actually being set.
+  Fixed by running the clear and the add-ignore/retention-keep* as two
+  separate kopia invocations (`profile.RunOptions.PreCommands`, plural,
+  replacing the single `PreCommand`) instead of one combined command.
+  Verified live: after this fix, `kopia policy show --global` correctly
+  shows the full ignore list, not an empty one.
+
 ## [0.3.0] - 2026-07-23
 
 ### Added

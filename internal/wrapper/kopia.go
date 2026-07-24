@@ -539,6 +539,20 @@ func BuildSnapshotArgs(p config.Profile) ([]string, error) {
 	return args, nil
 }
 
+// BuildPolicyClearIgnoreArgs returns the "policy set --global
+// --clear-ignore" argv that must be run as its OWN, separate kopia
+// invocation before BuildPolicyIgnoreArgs's command. kopia's "policy set"
+// silently drops every "--add-ignore=..." when "--clear-ignore" is
+// present in the SAME invocation - verified live against a real kopia
+// 0.23.1 repository (a combined "--clear-ignore --add-ignore=X" call
+// leaves the policy with zero ignore rules, not just X). Without a prior
+// clear, "--add-ignore" alone is purely additive, so a pattern removed
+// from Exclude/ExcludeFile since the last run would stay stuck in the
+// repository's global policy forever.
+func BuildPolicyClearIgnoreArgs() []string {
+	return []string{"policy", "set", "--global", "--clear-ignore"}
+}
+
 // BuildPolicyIgnoreArgs returns the "policy set --global --add-ignore=..."
 // argv needed to apply a profile's Backup.Exclude / Backup.ExcludeFile
 // patterns, or nil if there is nothing to apply. This targets the global
@@ -546,7 +560,9 @@ func BuildSnapshotArgs(p config.Profile) ([]string, error) {
 // per-source-path policy, matching resticprofile's model where exclude/
 // exclude-file apply uniformly regardless of how many backup.sources are
 // configured. Returns (nil, nil) - not an error - when there is nothing to
-// set, so callers can skip running it.
+// set, so callers can skip running it. Must be run as a separate kopia
+// invocation AFTER BuildPolicyClearIgnoreArgs's command - see its doc
+// comment.
 func BuildPolicyIgnoreArgs(p config.Profile) ([]string, error) {
 	var patterns []string
 	patterns = append(patterns, p.Backup.Exclude...)
@@ -560,10 +576,7 @@ func BuildPolicyIgnoreArgs(p config.Profile) ([]string, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
-	// --clear-ignore first: --add-ignore alone is purely additive, so a
-	// pattern removed from Exclude/ExcludeFile since the last run would
-	// otherwise stay stuck in the repository's global policy forever.
-	args := []string{"policy", "set", "--global", "--clear-ignore"}
+	args := []string{"policy", "set", "--global"}
 	for _, pattern := range patterns {
 		args = append(args, "--add-ignore="+pattern)
 	}
