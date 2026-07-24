@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mogic-le/kopiaprofile/internal/config"
+	"github.com/mogic-le/kopiaprofile/internal/sysmem"
 )
 
 // Runner holds the prepared `kopia` invocation.
@@ -480,7 +481,11 @@ func BuildSnapshotArgs(p config.Profile) ([]string, error) {
 		args = append(args, "--ignore-identical-snapshots=true")
 	}
 	if p.Backup.Parallel > 0 {
-		args = append(args, fmt.Sprintf("--parallel=%d", p.Backup.Parallel))
+		// Clamped to currently-available memory, not just the configured
+		// value - see internal/sysmem for why a static number (fleet
+		// default or per-host override) can't safely account for
+		// whatever else is running on the host at backup time.
+		args = append(args, fmt.Sprintf("--parallel=%d", sysmem.ClampParallel(p.Backup.Parallel)))
 	}
 	if p.Backup.Description != "" {
 		args = append(args, "--description="+p.Backup.Description)

@@ -5,7 +5,7 @@ import (
 )
 
 // version is overridable at build time via -ldflags.
-var version = "0.3.1-dev"
+var version = "0.4.0-dev"
 
 // newVersionCmd returns the `version` subcommand.
 func newVersionCmd() *cobra.Command {
