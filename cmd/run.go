@@ -192,11 +192,11 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		Warnings:          mountWarnings,
 	})
 	if err != nil {
-		Print("profile %q failed: %v", profileName, err)
+		PrintErr("profile %q failed: %v", profileName, err)
 		return err
 	}
 	if res.Kopia != nil {
-		Print("kopia exited with code %d in %s", res.Kopia.ExitCode, res.Duration)
+		PrintErr("kopia exited with code %d in %s", res.Kopia.ExitCode, res.Duration)
 	}
 	return nil
 }
@@ -440,6 +440,19 @@ func errorf(format string, args ...interface{}) error {
 // would only obscure the real exit code of the underlying command.
 var Print = func(format string, args ...interface{}) {
 	_, _ = fmt.Fprintf(os.Stdout, format+"\n", args...) //nolint:errcheck
+}
+
+// PrintErr writes a line to stderr. Used for kopiaprofile's own
+// diagnostics around a wrapped kopia invocation ("kopia exited with
+// code N in D", "profile X failed"), which must not share the stream
+// that carries kopia's payload output: `kopiaprofile <p> snapshots --
+// --json` writes kopia's JSON to stdout, and an epilogue appended
+// after the closing "]" makes the whole document unparseable
+// (observed live: `jq` failing with "Invalid numeric literal" on the
+// trailing line). Wrapper diagnostics belong on stderr; stdout stays
+// exactly what kopia produced.
+var PrintErr = func(format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...) //nolint:errcheck
 }
 
 // _ is used to keep "io" imported when no helper uses it directly yet

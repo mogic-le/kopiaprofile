@@ -135,9 +135,9 @@ kopiaprofile home init
 # 6. Run a backup (sources from the profile)
 kopiaprofile home snapshot create
 
-# 7. List snapshots (add --json for machine-readable output)
+# 7. List snapshots (-- --json for machine-readable output)
 kopiaprofile home snapshots
-kopiaprofile home snapshots --json
+kopiaprofile home snapshots -- --json
 
 # 8. Mount all snapshots to a directory
 kopiaprofile home mount /mnt/kopia
@@ -375,6 +375,28 @@ actions:
 If the action is `snapshot create` and you don't pass any source
 paths on the command line, `backup.sources` from the profile is
 used.
+
+### Passing kopia's own flags
+
+kopiaprofile parses its own flags (`--config`, `--verbose`, `--quiet`)
+strictly, so a flag meant for kopia has to be separated with `--`:
+
+```bash
+# Wrong: kopiaprofile rejects the flag as its own
+kopiaprofile home snapshots --json     # error: unknown flag: --json
+
+# Right: everything after -- goes to kopia untouched
+kopiaprofile home snapshots -- --json
+kopiaprofile home restore -- k12d1a437... /restore/target --skip-existing
+```
+
+kopiaprofile's own diagnostics ("kopia exited with code 0 in ...") go
+to stderr, so stdout carries only what kopia produced. That makes
+`kopiaprofile <profile> snapshots -- --json 2>/dev/null` directly
+pipeable into `jq` and usable as a backup inventory source: snapshot
+manifest ID, `rootEntry.obj` (the root object ID needed for
+`restore`), source paths, size and file counts, and
+`retentionReason`.
 
 ## Examples
 

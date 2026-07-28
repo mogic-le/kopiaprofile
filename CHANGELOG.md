@@ -24,11 +24,22 @@ maintainer's checklist.
 
 - The `snapshots` action now forwards extra arguments to kopia instead
   of discarding them. It hardcoded its argv, so
-  `kopiaprofile <profile> snapshots --json` silently dropped the flag
-  and printed kopia's human-readable table. `--json` is what makes
-  this action usable as a machine-readable backup inventory source
-  (snapshot manifest ID, root object ID, source paths, size/file
-  counts, `retentionReason`), so the flag has to reach kopia.
+  `kopiaprofile <profile> snapshots -- --json` silently dropped the
+  flag and printed kopia's human-readable table. `--json` is what
+  makes this action usable as a machine-readable backup inventory
+  source (snapshot manifest ID, root object ID, source paths,
+  size/file counts, `retentionReason`), so the flag has to reach
+  kopia. Note the `--` separator: kopiaprofile parses its own flags
+  strictly, and that applies to every pass-through action
+  (`restore`, `verify`, `mount`, `snapshot create`), not just this one.
+- kopiaprofile's own run diagnostics ("kopia exited with code N in D",
+  "profile X failed") now go to stderr instead of stdout. They were
+  appended to the same stream as kopia's payload output, so the
+  epilogue landed after the closing `]` of a `--json` document and
+  made it unparseable (observed live: `jq` failing with "Invalid
+  numeric literal"). `--quiet` did not suppress them either - it only
+  ever affected the log level. stdout now carries exactly what kopia
+  produced.
 
 ## [0.5.1] - 2026-07-28
 
