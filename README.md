@@ -302,6 +302,37 @@ default lock path is `/var/lock/kopiaprofile-<profile>.lock`. The
 path can be overridden via `lock.path`; `lock.force-inactive: true`
 ignores any stale lock.
 
+### Watching a run in progress
+
+`kopiaprofile <profile> watch` reports on a currently-running (or just
+finished) invocation of that profile, without touching kopia or the
+repository at all - it only reads the profile's lock file and a
+progress log kept alongside it (a sibling of the lock file, same
+directory, `.progress.log` instead of `.lock`; kopia's own stdout/
+stderr is teed into it for every `snapshot`/`prune`/etc. run). Useful
+for checking whether a long-running backup (large host, slow network,
+initial full upload) is still making progress or appears stuck, from a
+second terminal/session without interrupting the run itself:
+
+```
+$ kopiaprofile myhost watch
+RUNNING - pid 1610423 on myhost, started 2026-07-28 09:31:23 (running 5h27m)
+Progress: 42.10%  85MB/s  4.2 TB / 11 TB  812345 / 1930000 items  0 errors  ETA 3:12:00
+Last output (12s ago):
+  [5:27:03] 42.10%  85MB/s  4.2 TB / 11 TB  812345 / 1930000 items  0 errors  ETA 3:12:00
+```
+
+If the progress log hasn't been updated in over 15 minutes while the
+lock is still held, `watch` adds a `WARNING: no new output in ... -
+this run may be stuck` line. When nothing is running, it instead shows
+`NOT RUNNING` plus the tail of whatever the last run printed (useful
+right after a run finishes, or to see how a crashed run ended).
+
+The `Progress:` line is a best-effort parse of kopia's own progress
+output - kopia doesn't guarantee that format, so a version bump on the
+kopia side that changes it just means `watch` falls back to showing
+the raw tailed lines without a parsed summary, not an error.
+
 ## CLI reference
 
 Global flags: `--config <file>` (`-c`), `--verbose` (`-v`), `--quiet`.
@@ -338,6 +369,7 @@ actions:
 | `connect`      | `kopia repository connect <type>`               |
 | `copy`         | `kopia repository sync-to <target>` (see below) |
 | `check-index`  | `kopia index inspect --all`                     |
+| `watch`        | (no kopia invocation - see "Watching a run in progress" above) |
 
 If the action is `snapshot create` and you don't pass any source
 paths on the command line, `backup.sources` from the profile is

@@ -18,6 +18,30 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.0] - 2026-07-28
+
+### Added
+
+- `kopiaprofile <profile> watch`: reports whether a profile is
+  currently running (pid, host, start time, elapsed) and the tail of
+  its live progress output, without touching kopia or the repository -
+  useful for checking on a long-running backup (large host, slow
+  network, initial full upload) from a second session without
+  interrupting it. Parses kopia's own periodic progress line
+  (`XX.XX% ... ETA ...`) into a one-line summary when present, and
+  falls back to the raw tailed output otherwise. Flags a run as
+  possibly stuck if its progress log hasn't been updated in over 15
+  minutes while its lock is still held.
+- `internal/lock`: exported `Info`, `ReadInfo`, and `IsRunning` for
+  reading a profile's lock file (PID/host/start-time, and whether that
+  PID is still alive) without acquiring it - the basis for `watch`.
+- `internal/progress`: new package that tails a profile's progress log
+  and parses kopia's progress-line format.
+- `internal/profile.Run` now tees the main kopia invocation's stdout/
+  stderr into a per-profile progress log (a sibling of the lock file,
+  `.progress.log`), truncated at the start of each run. Best-effort:
+  a failure to open the log never fails the actual backup.
+
 ## [0.4.0] - 2026-07-24
 
 ### Added

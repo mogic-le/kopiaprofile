@@ -226,6 +226,62 @@ func isStale(path string) (stale bool, pid int, err error) {
 	return true, 0, nil
 }
 
+// Info is what a lock file records about its holder, read without
+// acquiring the lock. Used by `kopiaprofile <profile> watch` to report
+// whether a run is currently in progress and, if so, since when.
+type Info struct {
+	PID  int
+	Host string
+	At   time.Time
+}
+
+// ReadInfo parses the lock file at path without acquiring it. It
+// returns os.ErrNotExist (wrapped) if no lock file exists there.
+func ReadInfo(path string) (*Info, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- path is the lock file the caller owns
+	if err != nil {
+		return nil, err
+	}
+	info := &Info{}
+	for _, line := range strings.Split(string(data), "\n") {
+		switch {
+		case strings.HasPrefix(line, "pid="):
+			p, perr := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "pid=")))
+			if perr == nil {
+				info.PID = p
+			}
+		case strings.HasPrefix(line, "host="):
+			info.Host = strings.TrimSpace(strings.TrimPrefix(line, "host="))
+		case strings.HasPrefix(line, "at="):
+			at, aerr := time.Parse(time.RFC3339, strings.TrimSpace(strings.TrimPrefix(line, "at=")))
+			if aerr == nil {
+				info.At = at
+			}
+		}
+	}
+	return info, nil
+}
+
+// IsRunning reports whether the lock file at path currently belongs to
+// a live process. A missing lock file is reported as (false, nil, nil)
+// - "not running" is the normal, expected state between runs, not an
+// error. A lock file that exists but has no parseable PID is also
+// reported as not running (info is still returned for whatever fields
+// did parse, e.g. host/at).
+func IsRunning(path string) (running bool, info *Info, err error) {
+	info, err = ReadInfo(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil, nil
+		}
+		return false, nil, err
+	}
+	if info.PID == 0 {
+		return false, info, nil
+	}
+	return pidAlive(info.PID), info, nil
+}
+
 // pidAlive is a small wrapper around os.FindProcess / signal 0 so it
 // can be stubbed in tests.
 var pidAlive = pidAliveOS

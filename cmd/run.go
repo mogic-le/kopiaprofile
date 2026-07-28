@@ -68,6 +68,14 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		return errorf("expanding templates: %w", err)
 	}
 
+	// "watch" never touches kopia at all - it only reads this profile's
+	// own lock file and progress log (see cmd/watch.go), so it short-
+	// circuits before buildKopiaArgs/profile.Run rather than being just
+	// another buildKopiaArgs case like "status" or "connect".
+	if action == "watch" {
+		return runWatchAction(expanded)
+	}
+
 	// Build the kopia argv from (action, rest) plus profile flags.
 	kopiaArgs, err := buildKopiaArgs(expanded, action, rest)
 	if err != nil {

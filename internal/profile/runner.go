@@ -224,14 +224,41 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	if binary == "" {
 		binary = "kopia"
 	}
+	// Tee kopia's own stdout/stderr into a per-profile progress log so
+	// `kopiaprofile <profile> watch` can report on a run in progress
+	// (or the tail end of the last one) without a long-lived server
+	// process - see internal/progress and cmd/watch.go. Opened
+	// O_TRUNC: only the CURRENT (or most recent) run's output matters
+	// here, unlike the monitor status file, which is a small, permanent
+	// record - this file can grow to tens of MB over a multi-hour
+	// backup and has no reason to accumulate across runs. Best-effort:
+	// a failure to open it must never fail the actual backup.
+	writer, errWriter := opts.Writer, opts.ErrWriter
+	if progressPath := resolveProgressLogPath(opts.Profile); progressPath != "" {
+		if pf, perr := os.OpenFile(progressPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600); perr == nil { // #nosec G304 -- path derived from the profile's own lock path
+			defer pf.Close() //nolint:errcheck
+			if opts.Writer != nil {
+				writer = io.MultiWriter(opts.Writer, pf)
+			} else {
+				writer = pf
+			}
+			if opts.ErrWriter != nil {
+				errWriter = io.MultiWriter(opts.ErrWriter, pf)
+			} else {
+				errWriter = pf
+			}
+		} else {
+			opts.Logger.Warn("opening progress log", "path", progressPath, "err", perr)
+		}
+	}
 	r, err := wrapper.New(wrapper.Options{
 		KopiaBinary: binary,
 		Profile:     opts.Profile,
 		Command:     opts.Command,
 		Password:    password,
 		Stdin:       opts.Stdin,
-		Stdout:      opts.Writer,
-		Stderr:      opts.ErrWriter,
+		Stdout:      writer,
+		Stderr:      errWriter,
 		Timeout:     opts.Timeout,
 	})
 	if err != nil {
@@ -398,6 +425,29 @@ func resolveLockPath(p config.Profile) string {
 		return filepath.Join(os.TempDir(), "kopiaprofile-"+p.Name+".lock")
 	}
 	return filepath.Join(home, ".cache", "kopiaprofile", p.Name+".lock")
+}
+
+// LockPath returns the path of the lock file for the given profile.
+// Exported wrapper around resolveLockPath for cmd/watch.go.
+func LockPath(p config.Profile) string {
+	return resolveLockPath(p)
+}
+
+// ProgressLogPath returns the path of the progress log for the given
+// profile - a sibling of its lock file (same directory, same base
+// name, ".progress.log" instead of ".lock"), regardless of whether
+// Profile.Lock.Path was customized. Exported for cmd/watch.go.
+func ProgressLogPath(p config.Profile) string {
+	return resolveProgressLogPath(p)
+}
+
+func resolveProgressLogPath(p config.Profile) string {
+	lockPath := resolveLockPath(p)
+	if lockPath == "" {
+		return ""
+	}
+	ext := filepath.Ext(lockPath)
+	return strings.TrimSuffix(lockPath, ext) + ".progress.log"
 }
 
 func expandHome(p string) string {
