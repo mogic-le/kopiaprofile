@@ -55,6 +55,33 @@ func TestBuildKopiaArgsSnapshotListPassesThrough(t *testing.T) {
 	}
 }
 
+// The "snapshots" action used to hardcode its argv and drop `rest`
+// entirely, so `kopiaprofile <p> snapshots --json` ran a plain
+// `kopia snapshot list --all` and returned human-readable table output.
+// The flag has to reach kopia for this action to be usable as a
+// machine-readable backup inventory source.
+func TestBuildKopiaArgsSnapshotsPassesThroughFlags(t *testing.T) {
+	args, err := buildKopiaArgs(config.Profile{}, "snapshots", []string{"--json"})
+	if err != nil {
+		t.Fatalf("buildKopiaArgs: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if joined != "snapshot list --all --json" {
+		t.Errorf(`expected "snapshot list --all --json", got: %v`, args)
+	}
+}
+
+func TestBuildKopiaArgsSnapshotsWithoutFlags(t *testing.T) {
+	args, err := buildKopiaArgs(config.Profile{}, "snapshots", nil)
+	if err != nil {
+		t.Fatalf("buildKopiaArgs: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if joined != "snapshot list --all" {
+		t.Errorf(`expected "snapshot list --all", got: %v`, args)
+	}
+}
+
 // "check-index" used to map to "kopia index optimize", a mutating
 // compaction command gated behind --dangerous-commands=enabled - not
 // what a read-only "check" should run, and it fails out of the box.

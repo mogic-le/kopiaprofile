@@ -18,6 +18,18 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.2] - 2026-07-28
+
+### Fixed
+
+- The `snapshots` action now forwards extra arguments to kopia instead
+  of discarding them. It hardcoded its argv, so
+  `kopiaprofile <profile> snapshots --json` silently dropped the flag
+  and printed kopia's human-readable table. `--json` is what makes
+  this action usable as a machine-readable backup inventory source
+  (snapshot manifest ID, root object ID, source paths, size/file
+  counts, `retentionReason`), so the flag has to reach kopia.
+
 ## [0.5.1] - 2026-07-28
 
 ### Added

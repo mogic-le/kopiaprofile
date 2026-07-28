@@ -135,8 +135,9 @@ kopiaprofile home init
 # 6. Run a backup (sources from the profile)
 kopiaprofile home snapshot create
 
-# 7. List snapshots
+# 7. List snapshots (add --json for machine-readable output)
 kopiaprofile home snapshots
+kopiaprofile home snapshots --json
 
 # 8. Mount all snapshots to a directory
 kopiaprofile home mount /mnt/kopia
@@ -359,7 +360,7 @@ actions:
 | Action         | Maps to kopia subcommand                       |
 |----------------|-------------------------------------------------|
 | `snapshot` / `snap` | `kopia snapshot create <rest>`           |
-| `snapshots`    | `kopia snapshot list --all`                     |
+| `snapshots`    | `kopia snapshot list --all <rest>`              |
 | `restore`      | `kopia snapshot restore <root-id> <target>`     |
 | `mount`        | `kopia mount all <mountpoint>`                  |
 | `verify`       | `kopia snapshot verify`                         |

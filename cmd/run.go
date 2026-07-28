@@ -314,7 +314,15 @@ func buildKopiaArgs(p config.Profile, action string, rest []string) ([]string, e
 		args = append(args, snapshotArgs...)
 	case "snapshots":
 		// `kopiaprofile home snapshots` -> `kopia snapshot list --all`
-		args = []string{"snapshot", "list", "--all"}
+		//
+		// `rest` is appended so kopia's own list flags stay reachable,
+		// `--json` above all: that is what makes this action usable as a
+		// machine-readable inventory source (snapshot manifest ID, root
+		// object ID, source paths, stats, retentionReason) instead of
+		// only human-readable table output. Without the pass-through,
+		// `kopiaprofile <p> snapshots --json` silently dropped the flag
+		// and returned the table.
+		args = append([]string{"snapshot", "list", "--all"}, rest...)
 	case "mount":
 		// `kopiaprofile home mount <mountpoint>` -> `kopia mount all <mountpoint> --fuse-allow-other`
 		source := "all"
