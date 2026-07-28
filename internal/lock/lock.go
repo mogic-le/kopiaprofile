@@ -58,20 +58,18 @@ import (
 	"time"
 )
 
-// pidAliveOS is the platform-specific implementation of pidAlive.
-// On Unix, signal 0 is the only reliable test for "process exists".
-// On Windows, signal 0 semantics differ; we fall back to FindProcess
-// (which always succeeds on Windows) and assume the PID is alive.
-var pidAliveOS = func(pid int) bool {
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if err := proc.Signal(testSignal()); err != nil {
-		return false
-	}
-	return true
-}
+// pidAliveOS is the platform-specific implementation of pidAlive,
+// declared as a package-level var of this type in signal_unix.go /
+// signal_windows.go (not here) so each platform provides a fully
+// independent implementation rather than a shared body parameterized
+// by a signal value. The two need genuinely different logic: os.
+// Process.Signal on Windows only supports os.Interrupt and os.Kill -
+// there is no non-destructive probe equivalent to POSIX signal 0. See
+// signal_windows.go for the consequence an earlier, shared-code
+// version of this had (found live via `go test -race` self-
+// terminating its own test binary in CI on windows-latest, the first
+// time a new caller - lock.IsRunning - exercised this path against a
+// real, live PID).
 
 // ErrLocked is returned by Acquire when the lock is held by another
 // running process and ForceInactive is false.

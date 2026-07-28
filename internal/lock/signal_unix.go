@@ -7,7 +7,13 @@ import (
 	"syscall"
 )
 
-// testSignal returns a signal value that is safe to use for
-// process-existence probes. Signal 0 is the conventional choice on
-// POSIX systems.
-func testSignal() os.Signal { return syscall.Signal(0) }
+// pidAliveOS is the Unix implementation. Signal 0 is the conventional
+// POSIX probe for "does this process exist" - sending it never
+// affects the target process, it only reports delivery success/failure.
+var pidAliveOS = func(pid int) bool {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
