@@ -18,7 +18,7 @@ maintainer's checklist.
 
 ### Fixed
 
-## [0.5.0] - 2026-07-28
+## [0.5.1] - 2026-07-28
 
 ### Added
 
@@ -41,6 +41,23 @@ maintainer's checklist.
   stderr into a per-profile progress log (a sibling of the lock file,
   `.progress.log`), truncated at the start of each run. Best-effort:
   a failure to open the log never fails the actual backup.
+
+### Fixed
+
+- `internal/lock` on Windows: the process-liveness check used to send
+  `os.Kill` as its "is this PID still alive" probe. Unix's equivalent
+  (signal 0) is harmless, but Windows' `os.Process.Signal` only
+  implements `os.Interrupt` and `os.Kill` - `Kill` actually terminates
+  the process. In practice this meant checking whether a lock's holder
+  was still running could kill a legitimate, still-in-progress backup
+  on Windows right before treating its lock as stale and taking over.
+  Found live in CI (`go test -race` on windows-latest self-terminated
+  its own test binary the moment a test exercised this path against a
+  real PID) while adding the `Info`/`IsRunning` groundwork for `watch`
+  above - nothing before this release ever called that code path
+  against a genuinely live process, so the bug had no prior symptom.
+  Windows now only relies on `os.FindProcess` succeeding or failing and
+  never sends a signal at all.
 
 ## [0.4.0] - 2026-07-24
 
