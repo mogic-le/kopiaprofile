@@ -18,6 +18,24 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.3] - 2026-07-29
+
+### Fixed
+
+- A run that cannot acquire the profile lock no longer overwrites the
+  monitor status file. It never touched the repository, so it has
+  nothing to report about the backup - but writing the status anyway
+  destroyed the record of the run that did, and replaced its `end_at`
+  with the current time, so an age check would see a fresh timestamp
+  for a backup that never happened. Observed live on a host whose 24h
+  initial snapshot held the lock while every nightly cron run clobbered
+  `/var/log/kopia/backup-status.json` with `exit_code: 0` plus
+  `error: "acquiring lock: lock: already held"`. Leaving the previous
+  status alone is the safe behaviour: the overlapping run is still
+  visible as a failed job in the scheduler, and if the lock holder never
+  finishes, the untouched `end_at` ages past the warning and critical
+  thresholds on its own, which is the alert that should fire.
+
 ## [0.5.2] - 2026-07-28
 
 ### Fixed

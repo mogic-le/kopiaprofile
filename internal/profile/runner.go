@@ -129,9 +129,32 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	defer func() {
 		res.EndAt = time.Now()
 		res.Duration = res.EndAt.Sub(res.StartAt)
-		if opts.MonitorManager != nil {
-			opts.MonitorManager.Run(ctx, resultToMonitor(res), slogToLogger(opts.Logger))
+		if opts.MonitorManager == nil {
+			return
 		}
+		// A run that could not get the lock never touched the repository,
+		// so it has nothing to say about the state of the backup. Writing
+		// the status file anyway destroys the record of the run that
+		// actually did something - and replaces its end_at with "now",
+		// which makes the age check in the monitoring check look at a
+		// fresh timestamp for a backup that never happened.
+		//
+		// Observed live on example-host: a 24h initial snapshot
+		// was still running and holding the lock, and every nightly cron
+		// run overwrote /var/log/kopia/backup-status.json with
+		// exit_code 0 plus error "acquiring lock: lock: already held".
+		//
+		// Leaving the previous status in place is the safe behaviour: the
+		// overlapping run is still visible as a failed job in
+		// the scheduler, and if the holder never finishes, the untouched
+		// end_at ages past the warning/critical thresholds on its own,
+		// which is exactly the alert that should fire.
+		if errors.Is(res.Err, lock.ErrLocked) {
+			opts.Logger.Warn("not writing monitor status: lock held by another run",
+				"profile", opts.Profile.Name)
+			return
+		}
+		opts.MonitorManager.Run(ctx, resultToMonitor(res), slogToLogger(opts.Logger))
 	}()
 
 	// Run pre-commands in order (e.g. "kopia repository connect <source>"
