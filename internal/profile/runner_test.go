@@ -50,11 +50,12 @@ func TestRunSkipsHooksAndLock(t *testing.T) {
 
 // A run that cannot get the lock must leave the monitor status file
 // untouched. Overwriting it destroys the record of the run that actually
-// backed something up, and replaces its end_at with "now" - so
-// the monitoring check would be looking at a fresh timestamp for a backup
-// that never happened. Observed live on example-host, where a 24h
-// initial snapshot held the lock and every nightly cron run clobbered the
-// status file with exit_code 0 plus "acquiring lock: lock: already held".
+// backed something up, and replaces its end_at with "now" - so a monitoring
+// check that alerts on the age of the last backup would be looking at a
+// fresh timestamp for a backup that never happened. Observed live: a
+// multi-hour initial snapshot held the lock and every scheduled run behind
+// it clobbered the status file with exit_code 0 plus "acquiring lock: lock:
+// already held".
 func TestRunLockHeldDoesNotOverwriteMonitorStatus(t *testing.T) {
 	dir := t.TempDir()
 	lockPath := filepath.Join(dir, "held.lock")

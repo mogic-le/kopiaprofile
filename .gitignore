@@ -33,3 +33,6 @@ go.work.sum
 
 # Integration-test temp dir
 kopiaprofile-int-*
+
+# Internal working notes - must never land in this public repo
+CLAUDE.md

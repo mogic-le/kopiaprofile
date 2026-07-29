@@ -8,7 +8,7 @@ import (
 )
 
 // The status file must be world-readable (0644) so a non-root monitoring
-// user (e.g. monitoring) can read it, matching resticprofile's own status
+// user can read it, matching resticprofile's own status
 // file. os.CreateTemp defaults to 0600 and a rename doesn't change that,
 // so writeStatusFile must explicitly chmod before renaming - regression
 // test for that fix.

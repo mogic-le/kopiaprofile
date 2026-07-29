@@ -27,12 +27,12 @@ maintainer's checklist.
   nothing to report about the backup - but writing the status anyway
   destroyed the record of the run that did, and replaced its `end_at`
   with the current time, so an age check would see a fresh timestamp
-  for a backup that never happened. Observed live on a host whose 24h
-  initial snapshot held the lock while every nightly cron run clobbered
-  `/var/log/kopia/backup-status.json` with `exit_code: 0` plus
+  for a backup that never happened. Observed live on a host whose
+  multi-hour initial snapshot held the lock while every scheduled run
+  behind it clobbered the status file with `exit_code: 0` plus
   `error: "acquiring lock: lock: already held"`. Leaving the previous
-  status alone is the safe behaviour: the overlapping run is still
-  visible as a failed job in the scheduler, and if the lock holder never
+  status alone is the safe behaviour: the overlapping run still fails
+  visibly to whatever scheduled it, and if the lock holder never
   finishes, the untouched `end_at` ages past the warning and critical
   thresholds on its own, which is the alert that should fire.
 
