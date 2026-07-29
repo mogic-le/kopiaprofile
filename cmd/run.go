@@ -176,6 +176,10 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 	if isMonitoredAction(action) {
 		monitorManager = buildMonitorForProfile(cfg, expanded)
 	}
+	runTimeout, err := resolveRunTimeout(expanded.RunTimeout)
+	if err != nil {
+		return err
+	}
 	res, err := profile.Run(context.Background(), profile.RunOptions{
 		Profile:           expanded,
 		Command:           kopiaArgs,
@@ -183,7 +187,7 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		ErrWriter:         os.Stderr,
 		Logger:            rootLogger(flags),
 		DryRun:            dryRun,
-		Timeout:           24 * time.Hour,
+		Timeout:           runTimeout,
 		MonitorManager:    monitorManager,
 		PreCommands:       preCommands,
 		PrePassword:       prePassword,
@@ -267,6 +271,31 @@ func buildMonitorForProfile(cfg *config.File, p config.Profile) *monitor.Manager
 		})
 	}
 	return monitor.New(configs...)
+}
+
+// defaultRunTimeout caps a single kopia invocation when the profile
+// does not set run-timeout. It exists so a wedged run cannot hold its
+// lock forever; it is not a statement about how long a legitimate
+// backup may take.
+const defaultRunTimeout = 24 * time.Hour
+
+// resolveRunTimeout turns a profile's run-timeout into a duration,
+// falling back to defaultRunTimeout when unset. A malformed value is
+// an error rather than a silent fallback: silently backing off to 24h
+// on a profile that explicitly asked for more would reintroduce
+// exactly the truncation the setting exists to prevent.
+func resolveRunTimeout(raw string) (time.Duration, error) {
+	if raw == "" {
+		return defaultRunTimeout, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, errorf("invalid run-timeout %q: %w", raw, err)
+	}
+	if d <= 0 {
+		return 0, errorf("run-timeout must be positive, got %q", raw)
+	}
+	return d, nil
 }
 
 // buildKopiaArgs assembles the kopia command line for a given profile

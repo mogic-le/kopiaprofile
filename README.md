@@ -296,6 +296,23 @@ The hook receives a few environment variables: `KOPIAPROFILE_NAME`,
 `KOPIAPROFILE_ACTION`, `KOPIAPROFILE_EXIT_CODE`,
 `KOPIAPROFILE_DURATION_NS`, `KOPIAPROFILE_KOPIA_EXIT_CODE`.
 
+### Run timeout
+
+A single kopia invocation is killed after 24 hours by default, so a
+wedged run cannot hold its lock forever. A very large initial snapshot
+can legitimately need longer than that, and being killed at the cap
+leaves only checkpoint snapshots behind. Raise it per profile:
+
+```yaml
+profiles:
+  bigdata:
+    run-timeout: 96h        # Go duration; default is 24h when unset
+```
+
+A malformed or non-positive value is an error rather than a silent
+fallback to the default, so a typo cannot quietly reinstate the 24h cap
+on a profile that explicitly asked for more.
+
 ### Locking
 
 A file-based lock prevents concurrent runs of the same profile. The

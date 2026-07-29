@@ -252,6 +252,18 @@ type Profile struct {
 	RunFinally     string              `yaml:"run-finally"`
 	OtherFlags     map[string][]string `yaml:"other-flags"`
 
+	// RunTimeout caps how long a single kopia invocation may run
+	// before it is killed, as a Go duration string ("48h", "90m").
+	// Empty means the built-in default of 24h.
+	//
+	// A very large initial snapshot can legitimately exceed that
+	// default: observed live on a multi-terabyte source that had
+	// written 1.2 TiB when the 24h cap killed it, leaving only
+	// checkpoint snapshots behind. Because the cap was hardcoded
+	// there was no way to let such a source finish in one run, so
+	// it is configurable per profile now.
+	RunTimeout string `yaml:"run-timeout"`
+
 	// Schedule is a list of scheduled runs attached to this
 	// profile. The schedule package renders these into crontab,
 	// systemd or launchd configs.
@@ -457,6 +469,9 @@ func mergeProfiles(base, other Profile) Profile {
 	}
 	if other.RunFinally != "" {
 		out.RunFinally = other.RunFinally
+	}
+	if other.RunTimeout != "" {
+		out.RunTimeout = other.RunTimeout
 	}
 	for k, v := range other.OtherFlags {
 		if out.OtherFlags == nil {

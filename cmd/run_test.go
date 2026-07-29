@@ -3,6 +3,7 @@ package cmd
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mogic-le/kopiaprofile/internal/config"
 )
@@ -127,6 +128,53 @@ func TestBuildKopiaArgsConnectIncludesStorageFlags(t *testing.T) {
 func TestBuildKopiaArgsConnectRequiresType(t *testing.T) {
 	if _, err := buildKopiaArgs(config.Profile{}, "connect", nil); err == nil {
 		t.Error("expected error when repository.type is unset")
+	}
+}
+
+// The per-invocation timeout used to be hardcoded at 24h, which silently
+// truncated any legitimately longer run - observed live on a
+// multi-terabyte initial snapshot that was killed after writing 1.2 TiB,
+// leaving only checkpoints behind. run-timeout makes it configurable;
+// an unset value must still yield the 24h default.
+func TestResolveRunTimeoutDefault(t *testing.T) {
+	got, err := resolveRunTimeout("")
+	if err != nil {
+		t.Fatalf("resolveRunTimeout: %v", err)
+	}
+	if got != 24*time.Hour {
+		t.Errorf("expected 24h default, got %v", got)
+	}
+}
+
+func TestResolveRunTimeoutParsesDuration(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want time.Duration
+	}{
+		{"48h", 48 * time.Hour},
+		{"90m", 90 * time.Minute},
+		{"72h30m", 72*time.Hour + 30*time.Minute},
+	} {
+		got, err := resolveRunTimeout(tc.in)
+		if err != nil {
+			t.Errorf("resolveRunTimeout(%q): %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("resolveRunTimeout(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// A malformed or non-positive value must be an error, not a silent
+// fallback to the default: quietly capping a profile that asked for
+// more at 24h would reintroduce the very truncation this setting exists
+// to prevent, and it would do so invisibly.
+func TestResolveRunTimeoutRejectsBadValues(t *testing.T) {
+	for _, in := range []string{"nonsense", "24", "0", "0s", "-1h"} {
+		if _, err := resolveRunTimeout(in); err == nil {
+			t.Errorf("resolveRunTimeout(%q) = nil error, want error", in)
+		}
 	}
 }
 

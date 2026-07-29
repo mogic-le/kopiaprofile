@@ -18,6 +18,22 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.4] - 2026-07-29
+
+### Added
+
+- `run-timeout` per profile: caps how long a single kopia invocation may
+  run before it is killed, as a Go duration string. The cap used to be
+  hardcoded at 24 hours with no way to change it, which silently
+  truncated any run that legitimately needed longer. Observed live on a
+  multi-terabyte initial snapshot that had written 1.2 TiB when the cap
+  killed it after exactly 24h, leaving only checkpoint snapshots in the
+  repository and no way to ever complete in one run. Unset still means
+  24h, so nothing changes for existing configurations. A malformed or
+  non-positive value is an error rather than a silent fallback to the
+  default - quietly reinstating the 24h cap on a profile that asked for
+  more would reintroduce exactly the truncation the setting prevents.
+
 ## [0.5.3] - 2026-07-29
 
 ### Fixed
