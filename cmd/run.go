@@ -148,9 +148,22 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		}
 		if len(policyArgs) > 0 {
 			preCommands = append(preCommands, policyArgs)
+		}
+
+		// Keep the repository's object-lock maintenance parameter in sync
+		// with the profile. Runs before the snapshot, against the same
+		// already-connected repository, and is idempotent.
+		if lockArgs := wrapper.BuildObjectLockMaintenanceArgs(expanded); len(lockArgs) > 0 {
+			preCommands = append(preCommands, lockArgs)
+		}
+
+		// One password load for whatever pre-commands ended up queued. Tying
+		// it to policyArgs alone would leave any later pre-command without
+		// credentials the moment it is the only one.
+		if len(preCommands) > 0 {
 			pw, perr := secrets.FromProfile(expanded).Load()
 			if perr != nil {
-				return errorf("loading password for policy: %w", perr)
+				return errorf("loading password for pre-commands: %w", perr)
 			}
 			prePassword = pw
 		}

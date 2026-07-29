@@ -1,9 +1,7 @@
 package wrapper
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/mogic-le/kopiaprofile/internal/config"
@@ -39,33 +37,36 @@ func (a ObjectLockAction) Validate() error {
 	return nil
 }
 
-// ApplyObjectLockMaintenance runs
+// BuildObjectLockMaintenanceArgs returns the
 //
-//	kopia maintenance set --extend-object-locks=true
+//	kopia maintenance set --extend-object-locks=<bool>
 //
-// when ExtendOnMaintenance is true. It is a no-op otherwise.
-func ApplyObjectLockMaintenance(ctx context.Context, p config.Profile, password string, stdout, stderr io.Writer) error {
-	if !p.Repository.ObjectLock.ExtendOnMaintenance {
+// argv that makes the repository's maintenance parameters match the
+// profile's object-lock.extend-on-maintenance setting, or nil when the
+// profile has no object-lock block at all (then kopiaprofile has no
+// business touching the repository's maintenance parameters).
+//
+// The value is always written explicitly, in both directions, so the
+// YAML is the single source of truth: flipping the profile from true to
+// false actually disables extension on the next run instead of leaving a
+// stale "enabled" behind on the repository.
+//
+// This used to be a standalone ApplyObjectLockMaintenance function that
+// nothing ever called, which meant every profile could claim
+// extend-on-maintenance: true while the repository had extension
+// disabled - confirmed live on a whole fleet, every host reporting
+// "Object Lock Extension: disabled". Expressing it as a pre-command
+// instead puts it on the same path as the policy pre-commands, where it
+// runs against the already-connected repository and cannot silently
+// become dead code again.
+func BuildObjectLockMaintenanceArgs(p config.Profile) []string {
+	if p.Repository.ObjectLock.IsZero() {
 		return nil
 	}
-	r, err := New(Options{
-		KopiaBinary: pickBinary(p),
-		Profile:     p,
-		Command:     []string{"maintenance", "set", "--extend-object-locks=true"},
-		Password:    password,
-		Stdout:      stdout,
-		Stderr:      stderr,
-	})
-	if err != nil {
-		return err
-	}
-	_, err = r.Run(ctx)
-	return err
-}
 
-func pickBinary(p config.Profile) string {
-	if p.KopiaBinary != "" {
-		return p.KopiaBinary
+	if p.Repository.ObjectLock.ExtendOnMaintenance {
+		return []string{"maintenance", "set", "--extend-object-locks=true"}
 	}
-	return "kopia"
+
+	return []string{"maintenance", "set", "--extend-object-locks=false"}
 }

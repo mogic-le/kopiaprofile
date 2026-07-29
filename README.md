@@ -524,8 +524,24 @@ profiles:
       object-lock:
         mode: compliance            # compliance | governance | none
         retention-period: 720h      # informational
-        extend-on-maintenance: true # kopia maintenance set --extend-object-locks=true
+        extend-on-maintenance: true # kopia maintenance set --extend-object-locks=<value>
 ```
+
+`extend-on-maintenance` is applied before every snapshot as
+`kopia maintenance set --extend-object-locks=<value>`, in both
+directions, so the profile stays the single source of truth: setting it
+back to `false` disables extension on the next run instead of leaving a
+stale "enabled" on the repository. Check the effective state with
+`kopia maintenance info` (look for "Object Lock Extension").
+
+Think before turning it on. With extension enabled, kopia renews the
+retention window of every blob under its locking prefixes on each full
+maintenance cycle - including unreferenced pack blobs that garbage
+collection wants to reclaim but cannot, because they are still locked.
+Those blobs then have their expiry pushed out again on every cycle and
+can never be deleted, so the repository only ever grows. Depending on
+your kopia version, verify that its maintenance skips reclaimable packs
+before enabling this on a repository you care about.
 
 **The S3 bucket must be created with Object-Lock enabled and a
 `DefaultRetention` configured.** `kopiaprofile` cannot do this for you

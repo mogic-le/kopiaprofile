@@ -18,6 +18,35 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.5] - 2026-07-29
+
+### Fixed
+
+- `object-lock.extend-on-maintenance` now actually does something. It was
+  read into the config struct and then never used: the function meant to
+  apply it existed but had no callers, so every profile could declare
+  `extend-on-maintenance: true` while the repository had extension
+  disabled the whole time. Confirmed live across a fleet - every
+  repository reported "Object Lock Extension: disabled" while every
+  profile claimed otherwise. It is now applied as a pre-command before
+  each snapshot, on the same path as the policy pre-commands, so it runs
+  against the already-connected repository and cannot silently become
+  dead code again.
+- The value is written in both directions
+  (`--extend-object-locks=true|false`) rather than only when true, so the
+  profile is the single source of truth and flipping it back to `false`
+  actually disables extension instead of leaving a stale setting behind.
+- The pre-command password is now loaded whenever any pre-command is
+  queued, not only when policy arguments were built. Previously a
+  pre-command that ended up being the only one would have run without
+  credentials.
+
+### Changed
+
+- `wrapper.ApplyObjectLockMaintenance` is replaced by
+  `wrapper.BuildObjectLockMaintenanceArgs`, matching the other
+  `Build*Args` helpers.
+
 ## [0.5.4] - 2026-07-29
 
 ### Added
