@@ -80,13 +80,22 @@ type BackupSection struct {
 // (see BuildPolicyRetentionArgs / cmd/run.go), keeping the policy in sync
 // with the profile; Kopia expires old snapshots against it during
 // maintenance ("kopiaprofile <p> prune").
+// The fields are pointers so that "not configured" (nil) is
+// distinguishable from "configured to zero". Kopia makes the same
+// distinction internally (snapshot/policy.OptionalInt), and it matters:
+// zero is how you switch a retention class off. With plain ints, a
+// profile saying `keep-hourly: 0` was indistinguishable from a profile
+// not mentioning keep-hourly at all, so no --keep-hourly flag was
+// emitted and whatever kopia already had in its global policy stayed -
+// which for a fresh repository is kopia's own default of 48. The
+// setting looked applied and wasn't.
 type RetentionSection struct {
-	KeepLatest  int `yaml:"keep-latest"`
-	KeepHourly  int `yaml:"keep-hourly"`
-	KeepDaily   int `yaml:"keep-daily"`
-	KeepWeekly  int `yaml:"keep-weekly"`
-	KeepMonthly int `yaml:"keep-monthly"`
-	KeepAnnual  int `yaml:"keep-annual"`
+	KeepLatest  *int `yaml:"keep-latest"`
+	KeepHourly  *int `yaml:"keep-hourly"`
+	KeepDaily   *int `yaml:"keep-daily"`
+	KeepWeekly  *int `yaml:"keep-weekly"`
+	KeepMonthly *int `yaml:"keep-monthly"`
+	KeepAnnual  *int `yaml:"keep-annual"`
 }
 
 // VerifySection describes the `verify:` block.
@@ -306,9 +315,12 @@ func (b BackupSection) IsZero() bool {
 		!b.SendSnapshotReport
 }
 
+// IsZero reports whether the block configures nothing at all. A field
+// explicitly set to 0 counts as configured - it means "keep none of this
+// class" and must still reach kopia.
 func (r RetentionSection) IsZero() bool {
-	return r.KeepLatest == 0 && r.KeepHourly == 0 && r.KeepDaily == 0 &&
-		r.KeepWeekly == 0 && r.KeepMonthly == 0 && r.KeepAnnual == 0
+	return r.KeepLatest == nil && r.KeepHourly == nil && r.KeepDaily == nil &&
+		r.KeepWeekly == nil && r.KeepMonthly == nil && r.KeepAnnual == nil
 }
 
 func (v VerifySection) IsZero() bool {

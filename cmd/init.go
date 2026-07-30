@@ -50,11 +50,11 @@ func skeletonConfig() *config.File {
 					Tags:    []string{"nightly"},
 				},
 				Retention: config.RetentionSection{
-					KeepLatest:  5,
-					KeepDaily:   7,
-					KeepWeekly:  4,
-					KeepMonthly: 6,
-					KeepAnnual:  2,
+					KeepLatest:  intPtr(5),
+					KeepDaily:   intPtr(7),
+					KeepWeekly:  intPtr(4),
+					KeepMonthly: intPtr(6),
+					KeepAnnual:  intPtr(2),
 				},
 				Verify: config.VerifySection{
 					FilesPercent: 1.0,
@@ -71,7 +71,7 @@ func skeletonConfig() *config.File {
 					Tags:    []string{"home", "host:{{ .Hostname }}"},
 				},
 				Retention: config.RetentionSection{
-					KeepLatest: 3,
+					KeepLatest: intPtr(3),
 				},
 			},
 		},
@@ -114,3 +114,8 @@ The output format is auto-detected from the file extension (.yaml, .yml,
 	cmd.Flags().StringVar(&format, "format", "", "config format (yaml|toml|json); auto-detected from extension if empty")
 	return cmd
 }
+
+// intPtr returns a pointer to i. Retention values are optional pointers so
+// that an explicit 0 ("keep none of this class") stays distinguishable from
+// "not configured"; building a literal config therefore needs this.
+func intPtr(i int) *int { return &i }

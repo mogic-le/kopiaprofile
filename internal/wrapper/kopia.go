@@ -601,24 +601,26 @@ func BuildPolicyRetentionArgs(p config.Profile) []string {
 	if r.IsZero() {
 		return nil
 	}
+	// A field that is set at all is forwarded, including when it is set to
+	// zero: zero switches a retention class off, and skipping the flag
+	// would leave kopia's existing global policy in place instead (for a
+	// fresh repository that is kopia's own default, e.g. keep-hourly 48).
+	// Only nil - not configured - is skipped.
 	args := []string{"policy", "set", "--global"}
-	if r.KeepLatest > 0 {
-		args = append(args, fmt.Sprintf("--keep-latest=%d", r.KeepLatest))
-	}
-	if r.KeepHourly > 0 {
-		args = append(args, fmt.Sprintf("--keep-hourly=%d", r.KeepHourly))
-	}
-	if r.KeepDaily > 0 {
-		args = append(args, fmt.Sprintf("--keep-daily=%d", r.KeepDaily))
-	}
-	if r.KeepWeekly > 0 {
-		args = append(args, fmt.Sprintf("--keep-weekly=%d", r.KeepWeekly))
-	}
-	if r.KeepMonthly > 0 {
-		args = append(args, fmt.Sprintf("--keep-monthly=%d", r.KeepMonthly))
-	}
-	if r.KeepAnnual > 0 {
-		args = append(args, fmt.Sprintf("--keep-annual=%d", r.KeepAnnual))
+	for _, f := range []struct {
+		name  string
+		value *int
+	}{
+		{"keep-latest", r.KeepLatest},
+		{"keep-hourly", r.KeepHourly},
+		{"keep-daily", r.KeepDaily},
+		{"keep-weekly", r.KeepWeekly},
+		{"keep-monthly", r.KeepMonthly},
+		{"keep-annual", r.KeepAnnual},
+	} {
+		if f.value != nil {
+			args = append(args, fmt.Sprintf("--%s=%d", f.name, *f.value))
+		}
 	}
 	return args
 }

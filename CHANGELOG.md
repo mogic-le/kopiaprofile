@@ -18,6 +18,29 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.6] - 2026-07-30
+
+### Fixed
+
+- A retention value of `0` in a profile now reaches kopia instead of being
+  silently dropped. `retention.keep-*` were plain ints, so `keep-hourly: 0`
+  was indistinguishable from not mentioning `keep-hourly` at all: no
+  `--keep-hourly` flag was emitted and whatever kopia already had in its
+  global policy stayed. On a fresh repository that is kopia's own default,
+  so a profile could declare `keep-hourly: 0` and `keep-latest: 0` while
+  the repository kept expiring against 48 and 10. Zero is how a retention
+  class is switched off, so it has to be forwarded.
+
+### Changed
+
+- `retention.keep-*` are now optional (`*int`) so "not configured" and
+  "configured to zero" are distinct, the same distinction kopia makes
+  internally with `snapshot/policy.OptionalInt`. Unset fields still emit no
+  flag and leave kopia's value alone; existing profiles are unaffected.
+- `kopiaprofile display` prints an unset retention value as `-` instead of
+  `0`, and now also shows `hourly`. Printing both cases as `0` hid exactly
+  the difference above.
+
 ## [0.5.5] - 2026-07-29
 
 ### Fixed

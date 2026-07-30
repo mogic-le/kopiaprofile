@@ -149,12 +149,14 @@ func TestBuildPolicyClearIgnoreArgs(t *testing.T) {
 	}
 }
 
+func retInt(i int) *int { return &i }
+
 func TestBuildPolicyRetentionArgs(t *testing.T) {
 	p := config.Profile{
 		Retention: config.RetentionSection{
-			KeepDaily:   7,
-			KeepWeekly:  5,
-			KeepMonthly: 12,
+			KeepDaily:   retInt(7),
+			KeepWeekly:  retInt(5),
+			KeepMonthly: retInt(12),
 		},
 	}
 	args := BuildPolicyRetentionArgs(p)
@@ -166,6 +168,43 @@ func TestBuildPolicyRetentionArgs(t *testing.T) {
 		if args[i] != want[i] {
 			t.Fatalf("BuildPolicyRetentionArgs = %v, want %v", args, want)
 		}
+	}
+}
+
+// An explicitly configured zero must reach kopia. It is how a retention
+// class gets switched off, and skipping the flag would leave kopia's
+// existing global policy in place - on a fresh repository that is kopia's
+// own default (keep-hourly 48, keep-latest 10), so the profile would look
+// applied while the repository kept expiring snapshots on other terms.
+func TestBuildPolicyRetentionArgsForwardsExplicitZero(t *testing.T) {
+	p := config.Profile{
+		Retention: config.RetentionSection{
+			KeepLatest:  retInt(0),
+			KeepHourly:  retInt(0),
+			KeepDaily:   retInt(7),
+			KeepWeekly:  retInt(5),
+			KeepMonthly: retInt(12),
+			KeepAnnual:  retInt(2),
+		},
+	}
+	joined := strings.Join(BuildPolicyRetentionArgs(p), " ")
+	want := "policy set --global --keep-latest=0 --keep-hourly=0 --keep-daily=7 " +
+		"--keep-weekly=5 --keep-monthly=12 --keep-annual=2"
+	if joined != want {
+		t.Errorf("got:  %s\nwant: %s", joined, want)
+	}
+}
+
+// A field left unset must NOT produce a flag - that is what lets kopia keep
+// its own value, and it is the case an explicit zero has to be
+// distinguishable from.
+func TestBuildPolicyRetentionArgsSkipsUnsetFields(t *testing.T) {
+	p := config.Profile{
+		Retention: config.RetentionSection{KeepDaily: retInt(7)},
+	}
+	joined := strings.Join(BuildPolicyRetentionArgs(p), " ")
+	if joined != "policy set --global --keep-daily=7" {
+		t.Errorf("unset fields must not emit flags, got: %s", joined)
 	}
 }
 

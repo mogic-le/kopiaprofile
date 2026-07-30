@@ -114,6 +114,16 @@ profiles:
       send-snapshot-report: true                  # bool
 
     # ---------- retention ----------
+    # Applied as `kopia policy set --global --keep-*` before every
+    # snapshot. Every field is optional, and the distinction matters:
+    #   omitted  -> no flag is sent, so kopia keeps whatever its global
+    #               policy already says. On a fresh repository that is
+    #               kopia's own default: keep-hourly 48, keep-latest 10,
+    #               keep-annual 3.
+    #   set to 0 -> the flag IS sent, switching that class off.
+    # A retention class is therefore only really off once you write 0;
+    # leaving it out silently inherits kopia's default. `kopiaprofile
+    # display` shows an omitted value as "-" and an explicit zero as "0".
     retention:
       keep-latest: 5
       keep-hourly: 24

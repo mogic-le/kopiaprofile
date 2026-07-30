@@ -58,9 +58,10 @@ func printProfile(p config.Profile) {
 	}
 	Print("  sources        : %s", strings.Join(p.Backup.Sources, ", "))
 	Print("  tags           : %s", strings.Join(p.Backup.Tags, ", "))
-	Print("  retention      : latest=%d daily=%d weekly=%d monthly=%d annual=%d",
-		p.Retention.KeepLatest, p.Retention.KeepDaily, p.Retention.KeepWeekly,
-		p.Retention.KeepMonthly, p.Retention.KeepAnnual)
+	Print("  retention      : latest=%s hourly=%s daily=%s weekly=%s monthly=%s annual=%s",
+		optIntStr(p.Retention.KeepLatest), optIntStr(p.Retention.KeepHourly),
+		optIntStr(p.Retention.KeepDaily), optIntStr(p.Retention.KeepWeekly),
+		optIntStr(p.Retention.KeepMonthly), optIntStr(p.Retention.KeepAnnual))
 	Print("  run-before     : %s", p.RunBefore)
 	Print("  run-after      : %s", p.RunAfter)
 	Print("  run-after-fail : %s", p.RunAfterFail)
@@ -73,8 +74,13 @@ func printProfile(p config.Profile) {
 	}
 }
 
-// short helper: indented heading print
-func init() {
-	// no-op; the function above is exported via package config.
-	_ = fmt.Sprintf
+// optIntStr renders an optional retention value. "-" means the profile
+// does not configure it, so kopia keeps whatever its global policy already
+// says; "0" means the profile switches that retention class off. Printing
+// both as 0 would hide exactly that difference.
+func optIntStr(v *int) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d", *v)
 }
