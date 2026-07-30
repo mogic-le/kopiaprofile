@@ -317,3 +317,92 @@ func TestMaskSecrets(t *testing.T) {
 		}
 	}
 }
+
+// A retention value of 0 in YAML must parse to an explicit zero, not to
+// "unset". The two mean different things: unset leaves kopia's own global
+// policy value in place, zero switches the retention class off. If the
+// YAML decoder collapsed them, a profile could say `keep-hourly: 0` and
+// the repository would keep expiring against kopia's default of 48.
+func TestLoadRetentionZeroIsExplicit(t *testing.T) {
+	dir := t.TempDir()
+	cfg := writeFile(t, dir, "kopiaprofile.yaml", `
+version: "1"
+profiles:
+  host:
+    repository:
+      type: s3
+      bucket: b
+    backup:
+      sources: [/]
+    retention:
+      keep-latest: 0
+      keep-hourly: 0
+      keep-daily: 7
+      keep-weekly: 5
+      keep-monthly: 12
+      keep-annual: 2
+`)
+	f, err := Load(LoadOptions{ConfigPath: cfg})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	r := f.Profiles["host"].Retention
+	for _, c := range []struct {
+		name string
+		got  *int
+		want int
+	}{
+		{"keep-latest", r.KeepLatest, 0},
+		{"keep-hourly", r.KeepHourly, 0},
+		{"keep-daily", r.KeepDaily, 7},
+		{"keep-weekly", r.KeepWeekly, 5},
+		{"keep-monthly", r.KeepMonthly, 12},
+		{"keep-annual", r.KeepAnnual, 2},
+	} {
+		if c.got == nil {
+			t.Errorf("%s: parsed as unset, want explicit %d", c.name, c.want)
+			continue
+		}
+		if *c.got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, *c.got, c.want)
+		}
+	}
+	if r.IsZero() {
+		t.Error("IsZero: a block with explicit zeros must not count as unconfigured")
+	}
+}
+
+// The counterpart: a field that is absent must stay nil so no flag is
+// emitted for it and kopia keeps its own value.
+func TestLoadRetentionAbsentStaysUnset(t *testing.T) {
+	dir := t.TempDir()
+	cfg := writeFile(t, dir, "kopiaprofile.yaml", `
+version: "1"
+profiles:
+  host:
+    repository:
+      type: s3
+      bucket: b
+    backup:
+      sources: [/]
+    retention:
+      keep-daily: 7
+`)
+	f, err := Load(LoadOptions{ConfigPath: cfg})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	r := f.Profiles["host"].Retention
+	if r.KeepDaily == nil || *r.KeepDaily != 7 {
+		t.Fatalf("keep-daily: %v", r.KeepDaily)
+	}
+	for name, v := range map[string]*int{
+		"keep-latest": r.KeepLatest, "keep-hourly": r.KeepHourly,
+		"keep-weekly": r.KeepWeekly, "keep-monthly": r.KeepMonthly,
+		"keep-annual": r.KeepAnnual,
+	} {
+		if v != nil {
+			t.Errorf("%s: got explicit %d, want unset", name, *v)
+		}
+	}
+}
