@@ -202,6 +202,10 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 	if err != nil {
 		return err
 	}
+	retryAttempts, retryDelay, err := resolveRetry(expanded.Retry)
+	if err != nil {
+		return err
+	}
 	res, err := profile.Run(context.Background(), profile.RunOptions{
 		Profile:           expanded,
 		Command:           kopiaArgs,
@@ -216,6 +220,8 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 		PreKopiaConfigDir: preKopiaConfigDir,
 		PreCacheDir:       preCacheDir,
 		Warnings:          mountWarnings,
+		RetryAttempts:     retryAttempts,
+		RetryDelay:        retryDelay,
 	})
 	if err != nil {
 		PrintErr("profile %q failed: %v", profileName, err)
@@ -300,6 +306,35 @@ func buildMonitorForProfile(cfg *config.File, p config.Profile) *monitor.Manager
 // lock forever; it is not a statement about how long a legitimate
 // backup may take.
 const defaultRunTimeout = 24 * time.Hour
+
+// defaultRetryDelay is how long to wait before repeating a run when the
+// profile asks for retries without naming a delay. Chosen for the failure it
+// exists for: a transient S3 read error whose window is minutes to hours, so
+// an immediate repeat would very likely hit it again.
+const defaultRetryDelay = time.Hour
+
+// resolveRetry turns a profile's retry block into (attempts, delay). Same
+// strictness as resolveRunTimeout: a malformed value is an error, because
+// quietly falling back would leave the operator believing in a retry
+// behaviour that is not the configured one.
+func resolveRetry(r config.RetrySection) (int, time.Duration, error) {
+	attempts := r.Attempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	delay := defaultRetryDelay
+	if r.Delay != "" {
+		d, err := time.ParseDuration(r.Delay)
+		if err != nil {
+			return 0, 0, errorf("invalid retry delay %q: %w", r.Delay, err)
+		}
+		if d < 0 {
+			return 0, 0, errorf("retry delay must not be negative, got %q", r.Delay)
+		}
+		delay = d
+	}
+	return attempts, delay, nil
+}
 
 // resolveRunTimeout turns a profile's run-timeout into a duration,
 // falling back to defaultRunTimeout when unset. A malformed value is

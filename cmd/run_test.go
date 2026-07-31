@@ -178,6 +178,39 @@ func TestResolveRunTimeoutRejectsBadValues(t *testing.T) {
 	}
 }
 
+func TestResolveRetry(t *testing.T) {
+	// Unkonfiguriert heisst ein Versuch, nicht null.
+	attempts, delay, err := resolveRetry(config.RetrySection{})
+	if err != nil {
+		t.Fatalf("empty retry: %v", err)
+	}
+	if attempts != 1 {
+		t.Errorf("attempts = %d, want 1", attempts)
+	}
+	if delay != defaultRetryDelay {
+		t.Errorf("delay = %v, want the default %v", delay, defaultRetryDelay)
+	}
+
+	attempts, delay, err = resolveRetry(config.RetrySection{Attempts: 2, Delay: "20m"})
+	if err != nil {
+		t.Fatalf("configured retry: %v", err)
+	}
+	if attempts != 2 || delay != 20*time.Minute {
+		t.Errorf("got attempts %d delay %v, want 2 and 20m", attempts, delay)
+	}
+
+	// Eine 0 im Profil ist kein Fehler, sondern heisst "nicht wiederholen".
+	if attempts, _, err = resolveRetry(config.RetrySection{Attempts: 0, Delay: "1h"}); err != nil || attempts != 1 {
+		t.Errorf("attempts 0: got %d, %v; want 1 and no error", attempts, err)
+	}
+
+	for _, bad := range []string{"nonsense", "1", "-5m"} {
+		if _, _, err := resolveRetry(config.RetrySection{Attempts: 2, Delay: bad}); err == nil {
+			t.Errorf("resolveRetry delay %q = nil error, want error", bad)
+		}
+	}
+}
+
 // Only actions that are actually part of the backup lifecycle may touch
 // the monitor status file - a diagnostic command like "check-index"
 // overwriting the last real backup's recorded status is exactly the bug

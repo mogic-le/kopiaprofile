@@ -62,6 +62,9 @@ func printProfile(p config.Profile) {
 		optIntStr(p.Retention.KeepLatest), optIntStr(p.Retention.KeepHourly),
 		optIntStr(p.Retention.KeepDaily), optIntStr(p.Retention.KeepWeekly),
 		optIntStr(p.Retention.KeepMonthly), optIntStr(p.Retention.KeepAnnual))
+	if !p.Retry.IsZero() {
+		Print("  retry          : attempts=%d delay=%s", p.Retry.Attempts, p.Retry.Delay)
+	}
 	Print("  run-before     : %s", p.RunBefore)
 	Print("  run-after      : %s", p.RunAfter)
 	Print("  run-after-fail : %s", p.RunAfterFail)

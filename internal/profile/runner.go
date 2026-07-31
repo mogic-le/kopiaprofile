@@ -83,6 +83,15 @@ type RunOptions struct {
 	// through to the Result and on to the monitor status file/push, but
 	// never affect ExitCode or Err.
 	Warnings []string
+
+	// RetryAttempts is the TOTAL number of attempts, including the
+	// first. 0 and 1 both mean "run once". A repeat only happens under
+	// the narrow condition in retryable(): the attempt failed and no
+	// snapshot reached the repository.
+	RetryAttempts int
+	// RetryDelay is the wait between two attempts. Interruptible via
+	// ctx.
+	RetryDelay time.Duration
 }
 
 // Result is the outcome of a profile run.
@@ -97,6 +106,11 @@ type Result struct {
 	Kopia    *wrapper.Result
 	Err      error
 	Warnings []string
+	// Attempts is how often the run was executed, 1 when nothing was
+	// repeated. Everything else in this struct describes the LAST
+	// attempt; StartAt is the first attempt's start, so Duration spans
+	// the retry delays as well.
+	Attempts int
 }
 
 // HookResult records the execution of a single hook.
@@ -157,6 +171,84 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		opts.MonitorManager.Run(ctx, resultToMonitor(res), slogToLogger(opts.Logger))
 	}()
 
+	attempts := opts.RetryAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	for attempt := 1; ; attempt++ {
+		res.Attempts = attempt
+		// Everything below describes one attempt. Without the reset a
+		// repeated run would append its hooks to the previous attempt's
+		// and keep a stale error next to a successful kopia result.
+		res.Hooks = nil
+		res.Kopia = nil
+		res.Err = nil
+		res.ExitCode = 0
+
+		err := runOnce(ctx, opts, res)
+		if err == nil || attempt >= attempts || !retryable(opts, res) {
+			return res, err
+		}
+		opts.Logger.Warn("run failed without writing a snapshot, retrying",
+			"profile", opts.Profile.Name,
+			"attempt", attempt,
+			"of", attempts,
+			"delay", opts.RetryDelay,
+			"err", err)
+		select {
+		case <-ctx.Done():
+			// Keep the attempt's own error: it is what actually went
+			// wrong, the cancelled wait is a consequence.
+			return res, res.Err
+		case <-time.After(opts.RetryDelay):
+		}
+	}
+}
+
+// retryable reports whether a failed attempt is worth repeating.
+//
+// Three conditions, each of which excludes a case where a repeat is useless
+// or harmful:
+//
+// The action must be a snapshot. For any other action there is no "was
+// something written" signal, so the check below would say "nothing written"
+// for every failure and turn every failing restore or check into a repeated
+// one.
+//
+// No snapshot may have reached the repository. If one is in there, the failure
+// came after the backup itself - in practice the auto-maintenance, whose exit
+// code kopia folds into the snapshot's (cli/app.go). Repeating that runs the
+// same failing cleanup again and buys nothing, while the backup that matters
+// already exists.
+//
+// The lock must not be held by someone else. Another run is working on this
+// repository; waiting an hour and colliding with it a second time is not a
+// retry, it is noise.
+func retryable(opts RunOptions, res *Result) bool {
+	if res.Err == nil {
+		return false
+	}
+	if errors.Is(res.Err, lock.ErrLocked) {
+		return false
+	}
+	if len(opts.Command) == 0 || (opts.Command[0] != "snapshot" && opts.Command[0] != "snap") {
+		return false
+	}
+	return !snapshotCreated(res.Kopia)
+}
+
+// snapshotMarker is what kopia prints once per source it has snapshotted.
+// Same marker the Icinga check uses on the status file's stderr tail, so both
+// answer "did a snapshot reach the repository" identically.
+const snapshotMarker = "Created snapshot with root "
+
+func snapshotCreated(r *wrapper.Result) bool {
+	return r != nil && strings.Contains(r.Stderr, snapshotMarker)
+}
+
+// runOnce is a single attempt: pre-commands, password, lock, hooks and the
+// kopia invocation. It records everything in res and returns res.Err.
+func runOnce(ctx context.Context, opts RunOptions, res *Result) error {
 	// Run pre-commands in order (e.g. "kopia repository connect <source>"
 	// for the copy action). Failure here is fatal; we don't run
 	// run-fail hooks for a pre-command because the main command never
@@ -191,7 +283,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		})
 		if perr != nil {
 			res.Err = perr
-			return res, res.Err
+			return res.Err
 		}
 		opts.Logger.Info("running pre-command", "command", preRunner.Command())
 		preRes, prerr := preRunner.Run(ctx)
@@ -199,7 +291,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		if prerr != nil {
 			res.Err = prerr
 			res.ExitCode = preRes.ExitCode
-			return res, res.Err
+			return res.Err
 		}
 	}
 
@@ -210,7 +302,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	password, err := opts.PasswordSource.Load()
 	if err != nil {
 		res.Err = fmt.Errorf("loading password: %w", err)
-		return res, res.Err
+		return res.Err
 	}
 
 	// Acquire lock
@@ -222,7 +314,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		})
 		if err != nil {
 			res.Err = fmt.Errorf("acquiring lock: %w", err)
-			return res, res.Err
+			return res.Err
 		}
 		defer func() {
 			if relErr := l.Release(); relErr != nil {
@@ -239,7 +331,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		// there is no point in surfacing a second error to the user,
 		// the failure of the original hook is the actionable one.
 		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
-		return res, res.Err
+		return res.Err
 	}
 
 	// Build & run kopia
@@ -287,7 +379,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	if err != nil {
 		res.Err = err
 		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
-		return res, res.Err
+		return res.Err
 	}
 	opts.Logger.Debug("kopia argv", "command", r.Command())
 
@@ -299,7 +391,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		// are surfaced through the monitor status file.
 		_ = runHook(ctx, opts, PhaseAfter, opts.Profile.RunAfter, res)     //nolint:errcheck
 		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
-		return res, nil
+		return nil
 	}
 
 	kopiaRes, kerr := r.Run(ctx)
@@ -312,7 +404,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 		// not change the user-facing kopia error.
 		_ = runHook(ctx, opts, PhaseAfterFail, opts.Profile.RunAfterFail, res) //nolint:errcheck
 		_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res)     //nolint:errcheck
-		return res, res.Err
+		return res.Err
 	}
 
 	// Success path: run-after and run-finally are best-effort. We
@@ -321,7 +413,7 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 	// in the monitor status file via runHook's own logging.
 	_ = runHook(ctx, opts, PhaseAfter, opts.Profile.RunAfter, res)     //nolint:errcheck
 	_ = runHook(ctx, opts, PhaseFinally, opts.Profile.RunFinally, res) //nolint:errcheck
-	return res, nil
+	return nil
 }
 
 func runHook(ctx context.Context, opts RunOptions, phase Phase, cmd string, res *Result) error {
@@ -404,6 +496,7 @@ func resultToMonitor(r *Result) *types.RunResult {
 		Duration: r.Duration,
 		Hooks:    make([]types.RunHookResult, 0, len(r.Hooks)),
 		Warnings: r.Warnings,
+		Attempts: r.Attempts,
 	}
 	if host, err := os.Hostname(); err == nil {
 		out.Hostname = host

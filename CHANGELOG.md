@@ -18,6 +18,34 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.10] - 2026-07-31
+
+### Added
+
+- New `retry:` block per profile (`attempts`, `delay`), which repeats a
+  snapshot run that failed **without having written a snapshot**. It
+  targets the one failure class that actually costs a backup: a
+  transient backend error before or during the upload. Seen repeatedly
+  against S3, which answers a small metadata read with HTTP 200, the
+  correct `Content-Length` and an empty body; five hosts were hit in one
+  night, the window is minutes to hours, and an attempt an hour later
+  would have saved every one of them.
+- The retry is deliberately narrow, so it can be enabled everywhere. A
+  run is only repeated when the action is a snapshot, the attempt
+  failed, and no snapshot reached the repository. Kopia folds a failure
+  of its auto-maintenance into the snapshot's own exit code, so a run
+  whose backup is in the repository and whose cleanup failed afterwards
+  looks like a failure too - repeating that would re-run the same
+  failing cleanup for nothing. A run that lost the race for the profile
+  lock is not repeated either.
+- The retry wraps the pre-commands as well, not just `snapshot create`.
+  The policy pre-commands are the first thing that touches the
+  repository, so a failing metadata read surfaces there first.
+- The status file gains `attempts`. `start_at` stays the first attempt's,
+  so `duration` covers the waiting between attempts, and a monitoring
+  check that looks at the age of `end_at` sees when the run really
+  finished.
+
 ## [0.5.9] - 2026-07-31
 
 First release that actually ships the duplicate-mount exclusion. 0.5.7

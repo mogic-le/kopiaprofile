@@ -323,6 +323,57 @@ func TestMaskSecrets(t *testing.T) {
 // policy value in place, zero switches the retention class off. If the
 // YAML decoder collapsed them, a profile could say `keep-hourly: 0` and
 // the repository would keep expiring against kopia's default of 48.
+// Der retry-Block muss aus dem YAML ankommen und sich vererben, sonst
+// laeuft die Fleet weiter ohne zweiten Versuch, ohne dass es auffaellt.
+func TestLoadRetryBlock(t *testing.T) {
+	dir := t.TempDir()
+	cfg := writeFile(t, dir, "kopiaprofile.yaml", `
+version: "1"
+profiles:
+  base:
+    repository:
+      type: s3
+      bucket: b
+    backup:
+      sources: [/]
+    retry:
+      attempts: 2
+      delay: 1h
+  child:
+    inherit: base
+  eigen:
+    inherit: base
+    retry:
+      attempts: 4
+      delay: 5m
+`)
+	f, err := Load(LoadOptions{ConfigPath: cfg})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := f.Resolve(); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	for _, c := range []struct {
+		profile  string
+		attempts int
+		delay    string
+	}{
+		{"base", 2, "1h"},
+		{"child", 2, "1h"},
+		{"eigen", 4, "5m"},
+	} {
+		p := f.Profiles[c.profile]
+		if p.Retry.Attempts != c.attempts || p.Retry.Delay != c.delay {
+			t.Errorf("%s: retry = %+v, want attempts %d delay %q",
+				c.profile, p.Retry, c.attempts, c.delay)
+		}
+	}
+	if !(RetrySection{}).IsZero() {
+		t.Error("an empty retry block must count as unconfigured")
+	}
+}
+
 func TestLoadRetentionZeroIsExplicit(t *testing.T) {
 	dir := t.TempDir()
 	cfg := writeFile(t, dir, "kopiaprofile.yaml", `

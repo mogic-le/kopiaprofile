@@ -142,6 +142,32 @@ type LogSection struct {
 	Level string `yaml:"level"`
 }
 
+// RetrySection describes the `retry:` block: repeat a snapshot run that
+// failed WITHOUT having written a snapshot.
+//
+// The narrow condition is the point. It targets the one failure class that
+// actually costs a backup, a transient error before or during the upload, and
+// deliberately leaves alone a run whose snapshot is in the repository and
+// whose only failure was the maintenance afterwards - repeating that would
+// re-run the same failing cleanup for nothing.
+//
+// Observed motivation: S3 occasionally answers a metadata read with HTTP 200,
+// the correct Content-Length and an empty body, which fails the run before any
+// data is written. The disturbance lasts minutes to hours, so a second attempt
+// an hour later succeeds.
+type RetrySection struct {
+	// Attempts is the TOTAL number of attempts including the first one.
+	// 0 and 1 both mean "no retry".
+	Attempts int `yaml:"attempts"`
+	// Delay is the wait before the next attempt, as a Go duration string
+	// ("1h", "20m"). Empty means the built-in default.
+	Delay string `yaml:"delay"`
+}
+
+func (r RetrySection) IsZero() bool {
+	return r.Attempts == 0 && r.Delay == ""
+}
+
 // ScheduleEntry is a single backup schedule attached to a profile.
 // The `at` field uses 5-field cron syntax (see internal/schedule).
 // The `action` field defaults to "snapshot" (i.e. `kopiaprofile <p>
@@ -255,6 +281,7 @@ type Profile struct {
 	Restore        RestoreSection      `yaml:"restore"`
 	Lock           LockSection         `yaml:"lock"`
 	Log            LogSection          `yaml:"log"`
+	Retry          RetrySection        `yaml:"retry"`
 	RunBefore      string              `yaml:"run-before"`
 	RunAfter       string              `yaml:"run-after"`
 	RunAfterFail   string              `yaml:"run-after-fail"`
@@ -448,6 +475,9 @@ func mergeProfiles(base, other Profile) Profile {
 	}
 	if !other.Log.IsZero() {
 		out.Log = other.Log
+	}
+	if !other.Retry.IsZero() {
+		out.Retry = other.Retry
 	}
 	if !other.Copy.IsZero() {
 		// Merge source-repo field-by-field; copy flags OR together so

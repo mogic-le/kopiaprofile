@@ -29,6 +29,10 @@ type RunResult struct {
 	Hooks    []RunHookResult
 	Kopia    *KopiaResult
 	Warnings []string
+	// Attempts is how often the run was executed. 1 unless `retry:`
+	// is configured and a repeat was warranted; everything else here
+	// describes the last attempt.
+	Attempts int
 }
 
 // RunHookResult records the outcome of a single run-* hook.

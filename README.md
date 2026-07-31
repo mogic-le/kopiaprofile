@@ -313,6 +313,39 @@ A malformed or non-positive value is an error rather than a silent
 fallback to the default, so a typo cannot quietly reinstate the 24h cap
 on a profile that explicitly asked for more.
 
+### Retrying a snapshot that never got written
+
+A snapshot run can fail on a transient backend error before any data is
+written - an S3 backend answering a small metadata read with HTTP 200,
+the right `Content-Length` and an empty body, for instance. Those
+windows last minutes to hours, so a second attempt later usually
+succeeds, and without one the host simply has no backup for that night.
+
+```yaml
+profiles:
+  host:
+    retry:
+      attempts: 2           # total attempts including the first; 0/1 mean no retry
+      delay: 1h             # Go duration; default 1h when unset
+```
+
+A repeat happens only when all three hold:
+
+- the action is a snapshot,
+- the attempt failed, and
+- no snapshot reached the repository.
+
+The last condition is what makes this narrow enough to enable by
+default. Kopia folds a failure of its auto-maintenance into the exit
+code of the snapshot, so a run whose backup is safely in the repository
+and whose cleanup failed afterwards also looks like a failed run -
+repeating it would run the same failing cleanup again and gain nothing.
+A run that could not get the profile lock is not repeated either: some
+other run is working on that repository.
+
+The status file records `attempts`, and `start_at` stays the first
+attempt's, so `duration` includes the waiting.
+
 ### Locking
 
 A file-based lock prevents concurrent runs of the same profile. The
