@@ -18,6 +18,22 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.9] - 2026-07-31
+
+First release that actually ships the duplicate-mount exclusion. 0.5.7
+and 0.5.8 were tagged but never published: their draft releases were
+built while the Windows test job was red, first from an endless loop
+(fixed in 0.5.8) and then from the regression test below.
+
+### Fixed
+
+- `TestDetectDuplicatesSkipsExcludedMountpoints` failed on Windows. Its
+  first half needs a detected duplicate, and `deviceOf` has no device
+  number to compare there, so the call returned no group at all - the
+  same reason `TestDetectDuplicatesSameFilesystemTwoMountpoints` already
+  skipped that platform. Test-only; no change to the binary's behaviour
+  on any platform.
+
 ## [0.5.8] - 2026-07-31
 
 ### Fixed
