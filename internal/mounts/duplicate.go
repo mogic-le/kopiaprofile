@@ -12,6 +12,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -28,7 +29,12 @@ type DuplicateGroup struct {
 // considered - this naturally excludes proc, sysfs, tmpfs, overlay,
 // cgroup and network filesystems, which are not the mounted-twice
 // pattern this package targets and would otherwise be noisy to report.
-func DetectDuplicates(mountsFile string, roots []string) ([]DuplicateGroup, error) {
+// excludes are the profile's effective ignore patterns (see
+// wrapper.EffectiveIgnorePatterns). A mountpoint that those patterns keep
+// out of the backup is not reported: warning about a duplicate path whose
+// contents are never read would be a false positive, and one that cannot be
+// silenced by fixing the configuration.
+func DetectDuplicates(mountsFile string, roots, excludes []string) ([]DuplicateGroup, error) {
 	if mountsFile == "" {
 		mountsFile = "/proc/mounts"
 	}
@@ -50,6 +56,9 @@ func DetectDuplicates(mountsFile string, roots []string) ([]DuplicateGroup, erro
 			continue
 		}
 		if !underAnyRoot(mountpoint, roots) {
+			continue
+		}
+		if isExcluded(mountpoint, excludes) {
 			continue
 		}
 		dev, ok := deviceOf(mountpoint)
@@ -75,6 +84,44 @@ func DetectDuplicates(mountsFile string, roots []string) ([]DuplicateGroup, erro
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i].Paths[0] < groups[j].Paths[0] })
 	return groups, nil
+}
+
+// isExcluded reports whether an ignore pattern keeps mountpoint out of the
+// backup. Deliberately conservative: only anchored patterns (starting with
+// "/") are considered, matched against the mountpoint itself and against
+// each of its ancestor directories, because excluding a directory excludes
+// everything below it. Globs are matched with filepath.Match.
+//
+// Unanchored patterns are ignored here even though kopia's gitignore-style
+// rules would match them at any depth. Reimplementing those semantics would
+// duplicate kopia's matcher and could drift from it, and the two possible
+// mistakes are not equally bad: failing to suppress a warning is noise,
+// wrongly suppressing one hides a filesystem that really is being read
+// twice. So this errs towards still warning.
+func isExcluded(mountpoint string, excludes []string) bool {
+	for _, pattern := range excludes {
+		if !strings.HasPrefix(pattern, "/") {
+			continue
+		}
+		pattern = strings.TrimSuffix(pattern, "/")
+		if pattern == "" {
+			continue
+		}
+		if pattern == mountpoint || strings.HasPrefix(mountpoint, pattern+"/") {
+			return true
+		}
+		if !strings.ContainsAny(pattern, "*?[") {
+			continue
+		}
+		// Glob: test the mountpoint and every ancestor, so that a pattern
+		// like /var/lib/rancher/*/storage also covers paths below it.
+		for path := mountpoint; path != "/" && path != "."; path = filepath.Dir(path) {
+			if ok, err := filepath.Match(pattern, path); err == nil && ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // underAnyRoot reports whether mountpoint is one of roots or a

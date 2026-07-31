@@ -175,7 +175,16 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 	// internal/mounts.
 	var mountWarnings []string
 	if action == "snapshot" || action == "snap" {
-		if groups, merr := mounts.DetectDuplicates("", expanded.Backup.Sources); merr == nil {
+		// Dieselben Muster, die auch als Ignore-Policy an kopia gehen -
+		// sonst warnt die Erkennung ueber Pfade, die gar nicht gesichert
+		// werden. Ein Fehler beim Lesen der exclude-file ist hier kein
+		// Grund, den Lauf zu behindern: dann wird eben ungefiltert
+		// gewarnt, wie vorher.
+		ignorePatterns, iperr := wrapper.EffectiveIgnorePatterns(expanded)
+		if iperr != nil {
+			ignorePatterns = nil
+		}
+		if groups, merr := mounts.DetectDuplicates("", expanded.Backup.Sources, ignorePatterns); merr == nil {
 			for _, g := range groups {
 				w := fmt.Sprintf("same filesystem mounted at multiple backup paths: %s", strings.Join(g.Paths, ", "))
 				mountWarnings = append(mountWarnings, w)

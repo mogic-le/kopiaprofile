@@ -18,6 +18,33 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.7] - 2026-07-31
+
+### Fixed
+
+- The duplicate-mount detection no longer warns about mountpoints the
+  profile excludes. It only ever received `backup.sources`, never the
+  ignore patterns, so a filesystem that was deliberately kept out of the
+  backup was still reported as "same filesystem mounted at multiple
+  backup paths" - a warning whose cause was already fixed and which no
+  configuration change could silence. Seen on a k3s node where
+  `/var/lib/kubelet` and an auto-mounted duplicate of a data volume were
+  both excluded and both still reported, one of them listing fifteen
+  kubelet bind-mount paths.
+- The matching is deliberately conservative: only anchored patterns are
+  considered, against the mountpoint and each of its ancestors, with
+  globs via `filepath.Match`. Unanchored gitignore-style patterns are not
+  interpreted, because reimplementing kopia's matcher could drift from it
+  and the two possible mistakes are not equally bad - failing to suppress
+  a warning is noise, wrongly suppressing one hides a filesystem that
+  really is read twice.
+
+### Changed
+
+- New `wrapper.EffectiveIgnorePatterns`, so the ignore patterns handed to
+  kopia as policy and the ones the mount detection reasons about come
+  from one place instead of being assembled twice.
+
 ## [0.5.6] - 2026-07-30
 
 ### Fixed

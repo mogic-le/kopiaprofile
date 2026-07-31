@@ -448,6 +448,25 @@ func kopiaTagSpec(tag string, counter *int) string {
 	return fmt.Sprintf("tag%d", *counter) + ":" + tag
 }
 
+// EffectiveIgnorePatterns returns every ignore pattern a profile puts into
+// effect: the inline backup.exclude entries plus the contents of
+// backup.exclude-file. Exported so that anything which needs to know what
+// is actually excluded uses the same source of truth as the policy that
+// gets handed to kopia - internal/mounts needs exactly this, and a second,
+// separately-assembled copy of the list would drift.
+func EffectiveIgnorePatterns(p config.Profile) ([]string, error) {
+	var patterns []string
+	patterns = append(patterns, p.Backup.Exclude...)
+	if p.Backup.ExcludeFile != "" {
+		fromFile, err := readIgnorePatterns(p.Backup.ExcludeFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading exclude-file %q: %w", p.Backup.ExcludeFile, err)
+		}
+		patterns = append(patterns, fromFile...)
+	}
+	return patterns, nil
+}
+
 // readIgnorePatterns reads a resticprofile-style exclude file (one glob
 // pattern per line, blank lines and "#" comments skipped) and returns the
 // patterns found. Kopia has no "--exclude-file=" flag of its own (ignore
@@ -569,14 +588,9 @@ func BuildPolicyClearIgnoreArgs() []string {
 // invocation AFTER BuildPolicyClearIgnoreArgs's command - see its doc
 // comment.
 func BuildPolicyIgnoreArgs(p config.Profile) ([]string, error) {
-	var patterns []string
-	patterns = append(patterns, p.Backup.Exclude...)
-	if p.Backup.ExcludeFile != "" {
-		fromFile, err := readIgnorePatterns(p.Backup.ExcludeFile)
-		if err != nil {
-			return nil, fmt.Errorf("reading exclude-file %q: %w", p.Backup.ExcludeFile, err)
-		}
-		patterns = append(patterns, fromFile...)
+	patterns, err := EffectiveIgnorePatterns(p)
+	if err != nil {
+		return nil, err
 	}
 	if len(patterns) == 0 {
 		return nil, nil
