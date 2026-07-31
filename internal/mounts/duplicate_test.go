@@ -134,6 +134,13 @@ func TestDetectDuplicatesRootsFilter(t *testing.T) {
 // am 2026-07-31: /var/lib/kubelet und /mnt/HC_Volume_102132025 waren
 // ausgeschlossen und wurden weiter gemeldet.
 func TestDetectDuplicatesSkipsExcludedMountpoints(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Wie TestDetectDuplicatesSameFilesystemTwoMountpoints: die erste
+		// Haelfte braucht eine erkannte Doppelung, und deviceOf liefert auf
+		// Windows nie eine. Der Exclude-Pfad selbst ist dort ausserdem kein
+		// mit "/" beginnender Pfad, den isExcluded beruecksichtigt.
+		t.Skip("deviceOf has no device-number equivalent on Windows")
+	}
 	base := t.TempDir()
 	real := filepath.Join(base, "data")
 	auto := filepath.Join(base, "mnt", "HC_Volume_1")
