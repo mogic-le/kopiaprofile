@@ -12,7 +12,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
+	gopath "path"
 	"sort"
 	"strings"
 )
@@ -90,7 +90,7 @@ func DetectDuplicates(mountsFile string, roots, excludes []string) ([]DuplicateG
 // backup. Deliberately conservative: only anchored patterns (starting with
 // "/") are considered, matched against the mountpoint itself and against
 // each of its ancestor directories, because excluding a directory excludes
-// everything below it. Globs are matched with filepath.Match.
+// everything below it. Globs are matched with path.Match.
 //
 // Unanchored patterns are ignored here even though kopia's gitignore-style
 // rules would match them at any depth. Reimplementing those semantics would
@@ -115,10 +115,24 @@ func isExcluded(mountpoint string, excludes []string) bool {
 		}
 		// Glob: test the mountpoint and every ancestor, so that a pattern
 		// like /var/lib/rancher/*/storage also covers paths below it.
-		for path := mountpoint; path != "/" && path != "."; path = filepath.Dir(path) {
-			if ok, err := filepath.Match(pattern, path); err == nil && ok {
+		//
+		// Deliberately the "path" package, not "path/filepath": mountpoints
+		// come from /proc/mounts and are always slash-separated, while
+		// filepath is separator-aware. On Windows filepath.Dir returns
+		// backslashes, so a loop terminating on `!= "/"` never ends -
+		// filepath.Dir(`\`) is `\` forever. That hung the whole package's
+		// test binary for the full 10 minute timeout on windows-latest.
+		// The parent == p guard makes termination independent of any
+		// separator assumption.
+		for p := mountpoint; ; {
+			if ok, err := gopath.Match(pattern, p); err == nil && ok {
 				return true
 			}
+			parent := gopath.Dir(p)
+			if parent == p {
+				break
+			}
+			p = parent
 		}
 	}
 	return false

@@ -18,6 +18,21 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.8] - 2026-07-31
+
+### Fixed
+
+- The glob branch of the duplicate-mount exclusion could loop forever on
+  Windows, hanging the whole `internal/mounts` test binary until the
+  10 minute timeout. The ancestor walk terminated on `p != "/"` and used
+  `path/filepath`, whose `Dir` is separator-aware: on Windows
+  `filepath.Dir` of a lone backslash is that same backslash, so the
+  condition never became true. Mountpoints come from `/proc/mounts` and
+  are always slash-separated, so the walk now uses `path` instead of
+  `path/filepath`, and terminates on `Dir(p) == p` rather than on a
+  hardcoded separator. Introduced in 0.5.7 and caught by CI before that
+  release was published.
+
 ## [0.5.7] - 2026-07-31
 
 ### Fixed

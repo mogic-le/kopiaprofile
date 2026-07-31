@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 // writeMountsFile writes a synthetic /proc/mounts-style file listing the
@@ -188,6 +189,40 @@ func TestIsExcluded(t *testing.T) {
 		if got := isExcluded(c.mountpoint, c.patterns); got != c.want {
 			t.Errorf("%s: isExcluded(%q, %v) = %v, want %v", c.name, c.mountpoint, c.patterns, got, c.want)
 		}
+	}
+}
+
+// Regressionstest fuer eine Endlosschleife in der Glob-Auswertung. Die
+// Vorfahren-Schleife brach ursprünglich bei `p != "/"` ab und benutzte
+// path/filepath. Auf Windows liefert filepath.Dir Backslashes und
+// filepath.Dir(`\`) ist dauerhaft `\`, die Bedingung wurde also nie wahr:
+// das Testbinary des Pakets hing die vollen 10 Minuten bis zum Timeout, und
+// zwar nur auf windows-latest. Ein Test, der lediglich Rueckgabewerte prueft,
+// findet das nicht - es braucht eine Zeitgrenze.
+func TestIsExcludedTerminates(t *testing.T) {
+	inputs := []string{
+		"/var/lib/kubelet/pods/abc/volumes/x",
+		"/",
+		"",
+		".",
+		"relativ/ohne/slash",
+		`\`,
+		`C:\Users\test`,
+	}
+	patterns := []string{"/var/lib/*/storage", "/mnt/HC_Volume_*", "/*"}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, in := range inputs {
+			isExcluded(in, patterns)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("isExcluded terminiert nicht - Endlosschleife in der Vorfahren-Auswertung")
 	}
 }
 
