@@ -151,6 +151,78 @@ func TestBuildPolicyClearIgnoreArgs(t *testing.T) {
 
 func retInt(i int) *int { return &i }
 
+func retBool(b bool) *bool { return &b }
+
+func TestBuildPolicyErrorHandlingArgs(t *testing.T) {
+	// Nichts konfiguriert: kein Kommando, damit ein Profil ohne den Block die
+	// Policy des Repositories nicht anfasst.
+	if got := BuildPolicyErrorHandlingArgs(config.Profile{}); got != nil {
+		t.Errorf("unkonfiguriert: got %v, want nil", got)
+	}
+
+	// Der Fall, um den es geht: ein einzelner Teilbaum wird tolerant, global
+	// bleibt es streng. Reihenfolge global zuerst, dann die Pfade wie deklariert.
+	p := config.Profile{
+		Policy: config.PolicySection{
+			ErrorHandlingPolicy: config.ErrorHandlingPolicy{
+				IgnoreDirErrors: retBool(false),
+			},
+			Paths: []config.PathPolicy{
+				{
+					Path: "/opt/minio/data",
+					ErrorHandlingPolicy: config.ErrorHandlingPolicy{
+						IgnoreDirErrors: retBool(true),
+					},
+				},
+				{Path: "", ErrorHandlingPolicy: config.ErrorHandlingPolicy{IgnoreDirErrors: retBool(true)}},
+				{Path: "/ohne/flags"},
+			},
+		},
+	}
+	got := BuildPolicyErrorHandlingArgs(p)
+	want := [][]string{
+		{"policy", "set", "--global", "--ignore-dir-errors=false"},
+		{"policy", "set", "/opt/minio/data", "--ignore-dir-errors=true"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d Kommandos, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if strings.Join(got[i], " ") != strings.Join(want[i], " ") {
+			t.Errorf("Kommando %d: got %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+// false ist eine Aussage und muss durchgereicht werden. Ohne das Flag bliebe
+// stehen, was im Repository schon steht, und die Policy waere still wirkungslos
+// wie vor 0.5.6 bei den Retention-Nullen.
+func TestBuildPolicyErrorHandlingArgsForwardsFalse(t *testing.T) {
+	p := config.Profile{
+		Policy: config.PolicySection{
+			ErrorHandlingPolicy: config.ErrorHandlingPolicy{
+				IgnoreFileErrors:   retBool(false),
+				IgnoreDirErrors:    retBool(false),
+				IgnoreUnknownTypes: retBool(true),
+			},
+		},
+	}
+	got := BuildPolicyErrorHandlingArgs(p)
+	if len(got) != 1 {
+		t.Fatalf("got %v, want ein Kommando", got)
+	}
+	joined := strings.Join(got[0], " ")
+	for _, want := range []string{
+		"--ignore-file-errors=false",
+		"--ignore-dir-errors=false",
+		"--ignore-unknown-types=true",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("fehlt %q in %q", want, joined)
+		}
+	}
+}
+
 func TestBuildPolicyRetentionArgs(t *testing.T) {
 	p := config.Profile{
 		Retention: config.RetentionSection{

@@ -150,6 +150,12 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 			preCommands = append(preCommands, policyArgs)
 		}
 
+		// Error-handling policy, global and per path. Deliberately its own
+		// invocation per target rather than folded into policyArgs above: the
+		// per-path ones need a different target anyway, and merging would mean
+		// more index arithmetic on an already-built argument list.
+		preCommands = append(preCommands, wrapper.BuildPolicyErrorHandlingArgs(expanded)...)
+
 		// Keep the repository's object-lock maintenance parameter in sync
 		// with the profile. Runs before the snapshot, against the same
 		// already-connected repository, and is idempotent.

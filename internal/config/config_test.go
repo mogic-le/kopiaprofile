@@ -323,6 +323,54 @@ func TestMaskSecrets(t *testing.T) {
 // policy value in place, zero switches the retention class off. If the
 // YAML decoder collapsed them, a profile could say `keep-hourly: 0` and
 // the repository would keep expiring against kopia's default of 48.
+// Der policy-Block muss inklusive der Pfad-Einträge ankommen. Der Sinn des
+// Blocks ist, dass so eine Ausnahme im Git steht und nicht nur im Repository.
+func TestLoadPolicyBlock(t *testing.T) {
+	dir := t.TempDir()
+	cfg := writeFile(t, dir, "kopiaprofile.yaml", `
+version: "1"
+profiles:
+  host:
+    repository:
+      type: s3
+      bucket: b
+    backup:
+      sources: [/]
+    policy:
+      ignore-dir-errors: false
+      paths:
+        - path: /opt/minio/data
+          ignore-dir-errors: true
+`)
+	f, err := Load(LoadOptions{ConfigPath: cfg})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := f.Resolve(); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	pol := f.Profiles["host"].Policy
+	if pol.IsZero() {
+		t.Fatal("policy-Block als leer geparst")
+	}
+	if pol.IgnoreDirErrors == nil || *pol.IgnoreDirErrors {
+		t.Errorf("global ignore-dir-errors: got %v, want explizit false", pol.IgnoreDirErrors)
+	}
+	if len(pol.Paths) != 1 {
+		t.Fatalf("got %d Pfade, want 1: %+v", len(pol.Paths), pol.Paths)
+	}
+	if pol.Paths[0].Path != "/opt/minio/data" {
+		t.Errorf("Pfad: got %q", pol.Paths[0].Path)
+	}
+	if pol.Paths[0].IgnoreDirErrors == nil || !*pol.Paths[0].IgnoreDirErrors {
+		t.Errorf("Pfad ignore-dir-errors: got %v, want true", pol.Paths[0].IgnoreDirErrors)
+	}
+	// Ein Feld, das niemand gesetzt hat, bleibt nil und erzeugt spaeter kein Flag.
+	if pol.IgnoreFileErrors != nil {
+		t.Errorf("ignore-file-errors: got %v, want nil", *pol.IgnoreFileErrors)
+	}
+}
+
 // Der retry-Block muss aus dem YAML ankommen und sich vererben, sonst
 // laeuft die Fleet weiter ohne zweiten Versuch, ohne dass es auffaellt.
 func TestLoadRetryBlock(t *testing.T) {

@@ -313,6 +313,41 @@ A malformed or non-positive value is an error rather than a silent
 fallback to the default, so a typo cannot quietly reinstate the 24h cap
 on a profile that explicitly asked for more.
 
+### What makes a run fail: error-handling policy
+
+By default kopia fails a snapshot when it cannot read a file or a directory,
+and that default is right for a filesystem that holds still. It is wrong for a
+live object store: such a store keeps every object in its own directory and
+deletes objects while the snapshot walks them, so each run reports a vanished
+entry as a fatal error even though the snapshot itself is complete.
+
+```yaml
+profiles:
+  cdn:
+    policy:
+      ignore-dir-errors: false     # stay strict everywhere ...
+      paths:
+        - path: /opt/minio/data    # ... except in the object store
+          ignore-dir-errors: true
+```
+
+Each entry becomes a `kopia policy set` pre-command before the snapshot: the
+global fields against `--global`, every path against that path. The fields are
+optional; an omitted one emits no flag and leaves the repository's own value
+alone, while `false` is forwarded, because "be strict" is a statement.
+
+Prefer a path over the global switch. Tolerating a vanished file across the
+whole host also hides the case you want to hear about. Which of the two
+switches applies is decided by kopia, not by the profile: it looks at whether
+the failing entry is a directory, so an object store trips `ignore-dir-errors`
+even though the path ends in something that looks like a file. The snapshot
+root itself always fails on a read error regardless of the policy, so an empty
+snapshot can never be created silently.
+
+The point of declaring this in the profile is durability: a policy set by hand
+with `kopia policy set` lives only inside the repository, never shows up in
+review, and is gone the moment the repository is recreated.
+
 ### Retrying a snapshot that never got written
 
 A snapshot run can fail on a transient backend error before any data is

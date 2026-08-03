@@ -142,6 +142,52 @@ type LogSection struct {
 	Level string `yaml:"level"`
 }
 
+// ErrorHandlingPolicy mirrors kopia's error-handling policy: what makes a
+// snapshot run fail. All three are optional pointers, because `false` is a
+// statement ("be strict") and must be distinguishable from "not configured" -
+// the same distinction the retention values need, for the same reason: an
+// omitted field leaves whatever the repository already has in place.
+type ErrorHandlingPolicy struct {
+	IgnoreFileErrors   *bool `yaml:"ignore-file-errors"`
+	IgnoreDirErrors    *bool `yaml:"ignore-dir-errors"`
+	IgnoreUnknownTypes *bool `yaml:"ignore-unknown-types"`
+}
+
+func (e ErrorHandlingPolicy) IsZero() bool {
+	return e.IgnoreFileErrors == nil && e.IgnoreDirErrors == nil &&
+		e.IgnoreUnknownTypes == nil
+}
+
+// PathPolicy is an ErrorHandlingPolicy scoped to one path below a backup
+// source, i.e. kopia's per-directory policy rather than the global one.
+//
+// It exists because "tolerate this one noisy subtree" and "tolerate everything"
+// are very different decisions. A live object store rewrites its files while
+// the snapshot walks them, so a vanished entry there is normal; the same
+// error anywhere else on the host is a finding. Seen on a MinIO CDN host,
+// where every run reported one deleted object as a fatal error.
+type PathPolicy struct {
+	Path                string `yaml:"path"`
+	ErrorHandlingPolicy `yaml:",inline"`
+}
+
+// PolicySection describes the `policy:` block. The global part applies to the
+// repository's global policy, the paths to individual targets below it.
+//
+// Everything here is applied before each snapshot as `kopia policy set`
+// pre-commands, the same way `retention:` and the ignore rules are. That is
+// the point of having it in the profile at all: a policy set by hand lives
+// only inside the repository, is invisible in review, and is gone when the
+// repository is recreated.
+type PolicySection struct {
+	ErrorHandlingPolicy `yaml:",inline"`
+	Paths               []PathPolicy `yaml:"paths"`
+}
+
+func (p PolicySection) IsZero() bool {
+	return p.ErrorHandlingPolicy.IsZero() && len(p.Paths) == 0
+}
+
 // RetrySection describes the `retry:` block: repeat a snapshot run that
 // failed WITHOUT having written a snapshot.
 //
@@ -281,6 +327,7 @@ type Profile struct {
 	Restore        RestoreSection      `yaml:"restore"`
 	Lock           LockSection         `yaml:"lock"`
 	Log            LogSection          `yaml:"log"`
+	Policy         PolicySection       `yaml:"policy"`
 	Retry          RetrySection        `yaml:"retry"`
 	RunBefore      string              `yaml:"run-before"`
 	RunAfter       string              `yaml:"run-after"`
@@ -475,6 +522,9 @@ func mergeProfiles(base, other Profile) Profile {
 	}
 	if !other.Log.IsZero() {
 		out.Log = other.Log
+	}
+	if !other.Policy.IsZero() {
+		out.Policy = other.Policy
 	}
 	if !other.Retry.IsZero() {
 		out.Retry = other.Retry

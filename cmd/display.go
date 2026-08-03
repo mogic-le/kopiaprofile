@@ -62,6 +62,12 @@ func printProfile(p config.Profile) {
 		optIntStr(p.Retention.KeepLatest), optIntStr(p.Retention.KeepHourly),
 		optIntStr(p.Retention.KeepDaily), optIntStr(p.Retention.KeepWeekly),
 		optIntStr(p.Retention.KeepMonthly), optIntStr(p.Retention.KeepAnnual))
+	if !p.Policy.IsZero() {
+		Print("  policy         : global %s", errorHandlingStr(p.Policy.ErrorHandlingPolicy))
+		for _, pp := range p.Policy.Paths {
+			Print("                   %s %s", pp.Path, errorHandlingStr(pp.ErrorHandlingPolicy))
+		}
+	}
 	if !p.Retry.IsZero() {
 		Print("  retry          : attempts=%d delay=%s", p.Retry.Attempts, p.Retry.Delay)
 	}
@@ -75,6 +81,24 @@ func printProfile(p config.Profile) {
 			Print("    %s = %s", k, v)
 		}
 	}
+}
+
+// errorHandlingStr renders the set fields of an error-handling policy. An
+// unset field is printed as "-", the same convention optIntStr uses for
+// retention: "-" means the profile does not configure it and whatever the
+// repository holds stays, which is a different statement than "false".
+func errorHandlingStr(e config.ErrorHandlingPolicy) string {
+	return fmt.Sprintf("file=%s dir=%s unknown=%s",
+		optBoolStr(e.IgnoreFileErrors),
+		optBoolStr(e.IgnoreDirErrors),
+		optBoolStr(e.IgnoreUnknownTypes))
+}
+
+func optBoolStr(v *bool) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%t", *v)
 }
 
 // optIntStr renders an optional retention value. "-" means the profile

@@ -639,6 +639,61 @@ func BuildPolicyRetentionArgs(p config.Profile) []string {
 	return args
 }
 
+// BuildPolicyErrorHandlingArgs returns one `kopia policy set` command line per
+// target in the profile's `policy:` block: the global one first, then each
+// path, in the order they are declared.
+//
+// Same rule as the retention args: a field set to false is forwarded, because
+// false means "be strict" and leaving the flag out would keep whatever the
+// repository already has. Only an unset field is skipped.
+//
+// Per-path targets exist so a single noisy subtree can be tolerated without
+// loosening the whole host. kopia decides between the file and the directory
+// switch by whether the failing entry is a directory (`upload.go`, IsDir), and
+// an object store that keeps each object in its own directory therefore trips
+// the directory one when it deletes an object mid-run.
+func BuildPolicyErrorHandlingArgs(p config.Profile) [][]string {
+	if p.Policy.IsZero() {
+		return nil
+	}
+
+	var out [][]string
+	if flags := errorHandlingFlags(p.Policy.ErrorHandlingPolicy); len(flags) > 0 {
+		out = append(out, append([]string{"policy", "set", "--global"}, flags...))
+	}
+	for _, pp := range p.Policy.Paths {
+		if pp.Path == "" {
+			continue
+		}
+		flags := errorHandlingFlags(pp.ErrorHandlingPolicy)
+		if len(flags) == 0 {
+			continue
+		}
+		out = append(out, append([]string{"policy", "set", pp.Path}, flags...))
+	}
+	return out
+}
+
+// errorHandlingFlags renders the set fields of one error-handling policy.
+// kopia's flags take the strings "true"/"false"/"inherit"; we never emit
+// "inherit", an unset field simply produces no flag.
+func errorHandlingFlags(e config.ErrorHandlingPolicy) []string {
+	var flags []string
+	for _, f := range []struct {
+		name  string
+		value *bool
+	}{
+		{"ignore-file-errors", e.IgnoreFileErrors},
+		{"ignore-dir-errors", e.IgnoreDirErrors},
+		{"ignore-unknown-types", e.IgnoreUnknownTypes},
+	} {
+		if f.value != nil {
+			flags = append(flags, fmt.Sprintf("--%s=%t", f.name, *f.value))
+		}
+	}
+	return flags
+}
+
 // BuildVerifyArgs returns kopia flags for a profile's verify section.
 func BuildVerifyArgs(p config.Profile) []string {
 	var args []string

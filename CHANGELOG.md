@@ -18,6 +18,27 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.11] - 2026-08-03
+
+### Added
+
+- New `policy:` block, which declares kopia's error-handling policy in the
+  profile instead of leaving it as hand-set state inside the repository:
+  `ignore-file-errors`, `ignore-dir-errors`, `ignore-unknown-types`, globally
+  and per path. Each target becomes a `kopia policy set` pre-command before the
+  snapshot, the same way `retention:` and the ignore rules already work.
+- Per-path targets are the reason this exists. A live object store keeps every
+  object in its own directory and deletes objects while the snapshot walks
+  them, so every run reports a vanished entry as a fatal error while the
+  snapshot itself is complete. Tolerating that for the one subtree is a
+  different decision from tolerating it for the whole host, and only the
+  narrow one is safe to make.
+- The fields are `*bool`, so "not configured" and "configured to false" stay
+  distinguishable: `false` is forwarded to kopia, an omitted field emits no
+  flag and leaves the repository's value alone. Same reasoning as the `*int`
+  retention values in 0.5.6, where a plain type silently dropped the setting.
+- `kopiaprofile display` prints the block, with `-` for an unset field.
+
 ## [0.5.10] - 2026-07-31
 
 ### Added
