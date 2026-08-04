@@ -50,6 +50,9 @@ type Status struct {
 	Hostname string        `json:"hostname"`
 	Kopia    *KopiaStatus  `json:"kopia,omitempty"`
 	Warnings []string      `json:"warnings,omitempty"`
+	// Attempts is how often the run was executed; see the retry block in
+	// the profile. Omitted when it is 1, which is the normal case.
+	Attempts int `json:"attempts,omitempty"`
 }
 
 // HookStatus records the outcome of a single run-* hook.
@@ -140,6 +143,10 @@ func toStatus(pr *types.RunResult) Status {
 	st.Hostname = pr.Hostname
 	st.Error = pr.Error
 	st.Warnings = pr.Warnings
+	// Without this the field never reached the file: RunResult carried it and
+	// resultToMonitor set it, but Status had nowhere to put it, so 0.5.10
+	// documented an "attempts" field that was silently dropped.
+	st.Attempts = pr.Attempts
 	for _, h := range pr.Hooks {
 		hs := HookStatus{
 			Phase:    h.Phase,

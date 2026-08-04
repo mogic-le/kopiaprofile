@@ -18,6 +18,14 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.12] - 2026-08-04
+
+### Fixed
+
+- `attempts` now actually reaches the status file. 0.5.10 documented the field
+  and set it on the result, but the JSON struct had nowhere to put it, so it was
+  dropped at serialisation and no monitoring could ever see a repeated run.
+
 ## [0.5.11] - 2026-08-03
 
 ### Added
