@@ -18,6 +18,17 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.13] - 2026-08-07
+
+### Added
+
+- New `maintenance-retry:` block (`attempts`, `delay`). When a snapshot
+  succeeds but the auto-maintenance kopia folds into the same run fails,
+  retry `kopia maintenance run` on its own, spaced `delay` apart, instead of
+  repeating the whole snapshot. Off by default (`attempts: 0`). Targets the
+  same transient Wasabi metadata-read glitch `retry:` already covers for the
+  snapshot itself, which kopia's own ~12s retry budget does not survive.
+
 ## [0.5.12] - 2026-08-04
 
 ### Fixed
