@@ -214,6 +214,35 @@ func (r RetrySection) IsZero() bool {
 	return r.Attempts == 0 && r.Delay == ""
 }
 
+// MaintenanceRetrySection describes the `maintenance-retry:` block: when a
+// snapshot succeeded but the auto-maintenance kopia runs afterwards failed,
+// invoke `kopia maintenance run` on its own a few more times instead of
+// repeating the whole (expensive) snapshot.
+//
+// Narrower than RetrySection and complementary to it: RetrySection covers
+// "nothing was written", this covers "something was written, cleanup
+// afterwards wasn't". The same S3-returns-200-with-an-empty-body disturbance
+// that motivates RetrySection also hits maintenance's own blob reads
+// (observed: loading an active session while deleting unreferenced blobs).
+// kopia's own internal retry budget for a single read is seconds, far short
+// of the "minutes" the disturbance is known to last, so a bare rerun of the
+// same one invocation often just resends into the same window. Spacing a few
+// invocations minutes apart gives each one a fresh retry budget and lets the
+// disturbance clear between them, without touching kopia's own retry code.
+type MaintenanceRetrySection struct {
+	// Attempts is the number of EXTRA `kopia maintenance run` invocations
+	// after the one already folded into the failed snapshot run. 0 means
+	// no extra attempts (current behaviour, unchanged).
+	Attempts int `yaml:"attempts"`
+	// Delay is the wait before each extra attempt, as a Go duration
+	// string ("2m"). Empty means the built-in default.
+	Delay string `yaml:"delay"`
+}
+
+func (m MaintenanceRetrySection) IsZero() bool {
+	return m.Attempts == 0 && m.Delay == ""
+}
+
 // ScheduleEntry is a single backup schedule attached to a profile.
 // The `at` field uses 5-field cron syntax (see internal/schedule).
 // The `action` field defaults to "snapshot" (i.e. `kopiaprofile <p>
@@ -307,33 +336,34 @@ func (c CopySection) IsZero() bool {
 // Profile is the resolved (post-inheritance) representation of a single
 // profile in the configuration.
 type Profile struct {
-	Name           string              `yaml:"-"` // not loaded from YAML; set by resolver
-	Description    string              `yaml:"description"`
-	Inherit        string              `yaml:"inherit"`
-	Initialize     bool                `yaml:"initialize"`
-	Quiet          bool                `yaml:"quiet"`
-	Verbose        bool                `yaml:"verbose"`
-	Repository     Repository          `yaml:"repository"`
-	CacheDir       string              `yaml:"cache-dir"`
-	Password       Password            `yaml:"password"`
-	Env            map[string]string   `yaml:"env"`
-	EnvFile        string              `yaml:"env-file"`
-	KopiaBinary    string              `yaml:"kopia-binary"`
-	KopiaConfigDir string              `yaml:"kopia-config-dir"`
-	Backup         BackupSection       `yaml:"backup"`
-	Retention      RetentionSection    `yaml:"retention"`
-	Verify         VerifySection       `yaml:"verify"`
-	Mount          MountSection        `yaml:"mount"`
-	Restore        RestoreSection      `yaml:"restore"`
-	Lock           LockSection         `yaml:"lock"`
-	Log            LogSection          `yaml:"log"`
-	Policy         PolicySection       `yaml:"policy"`
-	Retry          RetrySection        `yaml:"retry"`
-	RunBefore      string              `yaml:"run-before"`
-	RunAfter       string              `yaml:"run-after"`
-	RunAfterFail   string              `yaml:"run-after-fail"`
-	RunFinally     string              `yaml:"run-finally"`
-	OtherFlags     map[string][]string `yaml:"other-flags"`
+	Name             string                  `yaml:"-"` // not loaded from YAML; set by resolver
+	Description      string                  `yaml:"description"`
+	Inherit          string                  `yaml:"inherit"`
+	Initialize       bool                    `yaml:"initialize"`
+	Quiet            bool                    `yaml:"quiet"`
+	Verbose          bool                    `yaml:"verbose"`
+	Repository       Repository              `yaml:"repository"`
+	CacheDir         string                  `yaml:"cache-dir"`
+	Password         Password                `yaml:"password"`
+	Env              map[string]string       `yaml:"env"`
+	EnvFile          string                  `yaml:"env-file"`
+	KopiaBinary      string                  `yaml:"kopia-binary"`
+	KopiaConfigDir   string                  `yaml:"kopia-config-dir"`
+	Backup           BackupSection           `yaml:"backup"`
+	Retention        RetentionSection        `yaml:"retention"`
+	Verify           VerifySection           `yaml:"verify"`
+	Mount            MountSection            `yaml:"mount"`
+	Restore          RestoreSection          `yaml:"restore"`
+	Lock             LockSection             `yaml:"lock"`
+	Log              LogSection              `yaml:"log"`
+	Policy           PolicySection           `yaml:"policy"`
+	Retry            RetrySection            `yaml:"retry"`
+	MaintenanceRetry MaintenanceRetrySection `yaml:"maintenance-retry"`
+	RunBefore        string                  `yaml:"run-before"`
+	RunAfter         string                  `yaml:"run-after"`
+	RunAfterFail     string                  `yaml:"run-after-fail"`
+	RunFinally       string                  `yaml:"run-finally"`
+	OtherFlags       map[string][]string     `yaml:"other-flags"`
 
 	// RunTimeout caps how long a single kopia invocation may run
 	// before it is killed, as a Go duration string ("48h", "90m").
@@ -528,6 +558,9 @@ func mergeProfiles(base, other Profile) Profile {
 	}
 	if !other.Retry.IsZero() {
 		out.Retry = other.Retry
+	}
+	if !other.MaintenanceRetry.IsZero() {
+		out.MaintenanceRetry = other.MaintenanceRetry
 	}
 	if !other.Copy.IsZero() {
 		// Merge source-repo field-by-field; copy flags OR together so

@@ -111,6 +111,11 @@ type Result struct {
 	// attempt; StartAt is the first attempt's start, so Duration spans
 	// the retry delays as well.
 	Attempts int
+	// MaintenanceRetries is how many extra `kopia maintenance run`
+	// invocations MaintenanceRetrySection triggered after a snapshot
+	// that succeeded but whose folded-in maintenance did not. 0 means
+	// either nothing needed it or maintenance-retry is unconfigured.
+	MaintenanceRetries int
 }
 
 // HookResult records the execution of a single hook.
@@ -187,6 +192,9 @@ func Run(ctx context.Context, opts RunOptions) (*Result, error) {
 
 		err := runOnce(ctx, opts, res)
 		if err == nil || attempt >= attempts || !retryable(opts, res) {
+			if err != nil && maintenanceOnlyFailure(res.Kopia) {
+				err = retryMaintenance(ctx, opts, res)
+			}
 			return res, err
 		}
 		opts.Logger.Warn("run failed without writing a snapshot, retrying",
@@ -244,6 +252,104 @@ const snapshotMarker = "Created snapshot with root "
 
 func snapshotCreated(r *wrapper.Result) bool {
 	return r != nil && strings.Contains(r.Stderr, snapshotMarker)
+}
+
+// maintenanceOnlyFailureMarker is the point in kopia's own output where a
+// failure means "the snapshot committed, only the auto-maintenance
+// afterwards did not" - see cli/app.go's repositoryWriterActionWithMaintenance,
+// which folds a maintenance error into the same exit code as the snapshot.
+const maintenanceOnlyFailureMarker = "running auto-maintenance:"
+
+// maintenanceOnlyFailure reports whether res describes exactly that case.
+// This is the condition MaintenanceRetrySection exists for - retryable()
+// deliberately refuses to repeat the whole snapshot for it, since the backup
+// itself is already safe and repeating would only re-run the same failing
+// cleanup.
+func maintenanceOnlyFailure(r *wrapper.Result) bool {
+	return snapshotCreated(r) && strings.Contains(r.Stderr, maintenanceOnlyFailureMarker)
+}
+
+// retryMaintenance is called only after a run whose snapshot succeeded but
+// whose folded-in auto-maintenance did not (maintenanceOnlyFailure). It
+// invokes `kopia maintenance run` on its own, spaced MaintenanceRetryDelay
+// apart, up to MaintenanceRetryAttempts times.
+//
+// Why a separate invocation instead of kopia's own retry: kopia already
+// retries a single blob read several times over a few seconds
+// (internal/retry in the kopia fork), which does not cover the disturbance
+// this targets - an S3 metadata read occasionally answering HTTP 200 with
+// the correct Content-Length and an empty body, self-resolving after
+// minutes. A fresh `kopia maintenance run` gets kopia's retry budget again
+// from zero, so spacing a few of them minutes apart reaches the same effect
+// without changing kopia's own retry code, which is not ours to carry
+// Mogic-specific tuning in.
+//
+// Leaves res.Err untouched (the original snapshot-run error) unless an extra
+// attempt actually succeeds, in which case it is cleared and a note is
+// appended to res.Kopia.Stderr - the snapshot's own "Created snapshot..."
+// line stays intact for anything reading the status file's stderr_tail
+// (the Icinga check, this package's own snapshotCreated).
+func retryMaintenance(ctx context.Context, opts RunOptions, res *Result) error {
+	attempts := opts.Profile.MaintenanceRetry.Attempts
+	if attempts <= 0 {
+		return res.Err
+	}
+	delay := 2 * time.Minute
+	if d := opts.Profile.MaintenanceRetry.Delay; d != "" {
+		if parsed, perr := time.ParseDuration(d); perr == nil {
+			delay = parsed
+		}
+	}
+	if opts.PasswordSource == nil {
+		opts.PasswordSource = secrets.FromProfile(opts.Profile)
+	}
+	password, perr := opts.PasswordSource.Load()
+	if perr != nil {
+		// Can't even try without a password - report the original failure.
+		return res.Err
+	}
+	binary := opts.Profile.KopiaBinary
+	if binary == "" {
+		binary = "kopia"
+	}
+	// res.Err/res.ExitCode/res.Kopia are left exactly as runOnce set them
+	// unless an attempt below succeeds. In particular res.Kopia keeps the
+	// snapshot's own "Created snapshot..." line even if every attempt here
+	// also fails - the backup is safe regardless, and anything reading the
+	// status file's stderr_tail needs that marker intact either way.
+	for i := 1; i <= attempts; i++ {
+		select {
+		case <-ctx.Done():
+			return res.Err
+		case <-time.After(delay):
+		}
+		res.MaintenanceRetries = i
+		r, werr := wrapper.New(wrapper.Options{
+			KopiaBinary: binary,
+			Profile:     opts.Profile,
+			Command:     []string{"maintenance", "run"},
+			Password:    password,
+			Timeout:     opts.Timeout,
+		})
+		if werr != nil {
+			continue
+		}
+		opts.Logger.Warn("snapshot ok but auto-maintenance failed, retrying maintenance on its own",
+			"profile", opts.Profile.Name,
+			"attempt", i,
+			"of", attempts,
+			"delay", delay)
+		_, merr := r.Run(ctx)
+		if merr == nil {
+			res.Err = nil
+			res.ExitCode = 0
+			res.Kopia.Stderr += fmt.Sprintf(
+				"\nkopiaprofile: auto-maintenance retried on its own and succeeded (attempt %d of %d)\n",
+				i, attempts)
+			return nil
+		}
+	}
+	return res.Err
 }
 
 // runOnce is a single attempt: pre-commands, password, lock, hooks and the

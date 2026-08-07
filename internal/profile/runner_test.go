@@ -273,3 +273,150 @@ func TestRunPasswordFailure(t *testing.T) {
 		t.Errorf("expected errFake, got %v", err)
 	}
 }
+
+// fakeKopiaMaintenanceRetry writes an executable script that behaves
+// differently depending on the subcommand it is invoked with, so it can
+// stand in for both the initial "snapshot create" (which reports the
+// maintenance-only failure) and the later "maintenance run" retries (which
+// succeed once succeedOnAttempt invocations of "maintenance run" have
+// happened). Every invocation's first two args are appended to argvLog.
+func fakeKopiaMaintenanceRetry(t *testing.T, argvLog, maintCounter string, succeedOnAttempt int, snapshotStderr string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake kopia is a shell script")
+	}
+	path := filepath.Join(t.TempDir(), "kopia")
+	script := "#!/bin/sh\n" +
+		"echo \"$1 $2\" >> " + shellQuote(argvLog) + "\n" +
+		"if [ \"$1\" = maintenance ] && [ \"$2\" = run ]; then\n" +
+		"  n=$(( $(cat " + shellQuote(maintCounter) + " 2>/dev/null || echo 0) + 1 ))\n" +
+		"  echo \"$n\" > " + shellQuote(maintCounter) + "\n" +
+		"  if [ \"$n\" -ge " + strconv.Itoa(succeedOnAttempt) + " ]; then\n" +
+		"    exit 0\n" +
+		"  fi\n" +
+		"  echo 'maintenance still failing' >&2\n" +
+		"  exit 1\n" +
+		"else\n" +
+		"  printf '%s' " + shellQuote(snapshotStderr) + " >&2\n" +
+		"  exit 1\n" +
+		"fi\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { // #nosec G306 -- must be executable
+		t.Fatalf("writing fake kopia: %v", err)
+	}
+	return path
+}
+
+// snapshotOnlyMaintenanceFailureStderr is real kopia output for the case
+// MaintenanceRetrySection exists to handle: the snapshot committed, only the
+// auto-maintenance kopia runs afterwards failed.
+const snapshotOnlyMaintenanceFailureStderr = "Created snapshot with root kabc123 (1.2 GB)\nrunning auto-maintenance: error running maintenance: unable to delete blob\n"
+
+// The case the feature is for: a snapshot succeeded, its folded-in
+// maintenance failed, and a later on-its-own "maintenance run" succeeds
+// before the configured attempts run out.
+func TestRunRetriesMaintenanceOnlyFailure(t *testing.T) {
+	dir := t.TempDir()
+	argvLog := filepath.Join(dir, "argv")
+	maintCounter := filepath.Join(dir, "maint-count")
+	prof := config.Profile{
+		Name:        "test",
+		KopiaBinary: fakeKopiaMaintenanceRetry(t, argvLog, maintCounter, 2, snapshotOnlyMaintenanceFailureStderr),
+		Backup:      config.BackupSection{Sources: []string{"/tmp"}},
+		Lock:        config.LockSection{Path: filepath.Join(dir, "x.lock")},
+		MaintenanceRetry: config.MaintenanceRetrySection{
+			Attempts: 3,
+			Delay:    "0s",
+		},
+	}
+	res, err := Run(context.Background(), RunOptions{
+		Profile:        prof,
+		Command:        []string{"snapshot", "create", "/tmp"},
+		SkipHooks:      true,
+		PasswordSource: fakeLoader{value: "secret"},
+	})
+	if err != nil {
+		t.Fatalf("expected the maintenance retry to clear the error, got %v", err)
+	}
+	if res.MaintenanceRetries != 2 {
+		t.Errorf("MaintenanceRetries = %d, want 2", res.MaintenanceRetries)
+	}
+	if res.Kopia == nil || !strings.Contains(res.Kopia.Stderr, snapshotMarker) {
+		t.Errorf("snapshot marker lost from res.Kopia.Stderr: %+v", res.Kopia)
+	}
+	got, rerr := os.ReadFile(argvLog)
+	if rerr != nil {
+		t.Fatalf("reading argv log: %v", rerr)
+	}
+	if want := "snapshot create\nmaintenance run\nmaintenance run\n"; string(got) != want {
+		t.Errorf("argv log = %q, want %q", got, want)
+	}
+}
+
+// When every extra "maintenance run" attempt also fails, the run must still
+// report the original error - and must not have overwritten res.Kopia with
+// one of the maintenance-only invocations, which would destroy the "Created
+// snapshot with root " marker the Icinga check and snapshotCreated() depend
+// on to know the backup itself is safe.
+func TestRunMaintenanceRetryExhausted(t *testing.T) {
+	dir := t.TempDir()
+	argvLog := filepath.Join(dir, "argv")
+	maintCounter := filepath.Join(dir, "maint-count")
+	prof := config.Profile{
+		Name:        "test",
+		KopiaBinary: fakeKopiaMaintenanceRetry(t, argvLog, maintCounter, 99, snapshotOnlyMaintenanceFailureStderr),
+		Backup:      config.BackupSection{Sources: []string{"/tmp"}},
+		Lock:        config.LockSection{Path: filepath.Join(dir, "x.lock")},
+		MaintenanceRetry: config.MaintenanceRetrySection{
+			Attempts: 2,
+			Delay:    "0s",
+		},
+	}
+	res, err := Run(context.Background(), RunOptions{
+		Profile:        prof,
+		Command:        []string{"snapshot", "create", "/tmp"},
+		SkipHooks:      true,
+		PasswordSource: fakeLoader{value: "secret"},
+	})
+	if err == nil {
+		t.Fatal("expected the run to still report the maintenance failure")
+	}
+	if res.MaintenanceRetries != 2 {
+		t.Errorf("MaintenanceRetries = %d, want 2", res.MaintenanceRetries)
+	}
+	if res.Kopia == nil || !strings.Contains(res.Kopia.Stderr, snapshotMarker) {
+		t.Errorf("snapshot marker lost from res.Kopia.Stderr even though the backup itself succeeded: %+v", res.Kopia)
+	}
+}
+
+// maintenance-retry is opt-in: with no attempts configured, a maintenance-
+// only failure must not trigger any extra kopia invocation at all.
+func TestRunMaintenanceRetryDisabledByDefault(t *testing.T) {
+	dir := t.TempDir()
+	argvLog := filepath.Join(dir, "argv")
+	maintCounter := filepath.Join(dir, "maint-count")
+	prof := config.Profile{
+		Name:        "test",
+		KopiaBinary: fakeKopiaMaintenanceRetry(t, argvLog, maintCounter, 1, snapshotOnlyMaintenanceFailureStderr),
+		Backup:      config.BackupSection{Sources: []string{"/tmp"}},
+		Lock:        config.LockSection{Path: filepath.Join(dir, "x.lock")},
+	}
+	res, err := Run(context.Background(), RunOptions{
+		Profile:        prof,
+		Command:        []string{"snapshot", "create", "/tmp"},
+		SkipHooks:      true,
+		PasswordSource: fakeLoader{value: "secret"},
+	})
+	if err == nil {
+		t.Fatal("expected the run to report the maintenance failure")
+	}
+	if res.MaintenanceRetries != 0 {
+		t.Errorf("MaintenanceRetries = %d, want 0 (feature unconfigured)", res.MaintenanceRetries)
+	}
+	got, rerr := os.ReadFile(argvLog)
+	if rerr != nil {
+		t.Fatalf("reading argv log: %v", rerr)
+	}
+	if want := "snapshot create\n"; string(got) != want {
+		t.Errorf("argv log = %q, want %q (no extra maintenance invocation)", got, want)
+	}
+}
