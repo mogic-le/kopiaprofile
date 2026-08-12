@@ -58,7 +58,7 @@ func fullMaintenanceGateArgs(ctx context.Context, log *slog.Logger, p config.Pro
 		// handled below
 	}
 
-	oldest, err := probeOldestBlobTime(ctx, p, password)
+	started, err := probeRepositoryStart(ctx, p, password)
 	if err != nil {
 		log.Warn("cannot read repository age, leaving full maintenance untouched",
 			"profile", p.Name, "err", err)
@@ -66,7 +66,7 @@ func fullMaintenanceGateArgs(ctx context.Context, log *slog.Logger, p config.Pro
 		return nil
 	}
 
-	reclaimFrom, err := wrapper.ReclaimStartsAt(oldest, p.Repository.ObjectLock.RetentionPeriod)
+	reclaimFrom, err := wrapper.ReclaimStartsAt(started, p.Repository.ObjectLock.RetentionPeriod)
 	if err != nil {
 		log.Warn("cannot compute the retention window, leaving full maintenance untouched",
 			"profile", p.Name, "err", err)
@@ -77,7 +77,7 @@ func fullMaintenanceGateArgs(ctx context.Context, log *slog.Logger, p config.Pro
 	if time.Now().Before(reclaimFrom) {
 		log.Info("retention still covers every blob, deferring full maintenance",
 			"profile", p.Name,
-			"oldest-blob", oldest.UTC().Format(time.RFC3339),
+			"repository-start", started.UTC().Format(time.RFC3339),
 			"reclaim-possible-from", reclaimFrom.UTC().Format(time.RFC3339))
 
 		return wrapper.BuildFullMaintenanceArgs(false)
@@ -85,18 +85,19 @@ func fullMaintenanceGateArgs(ctx context.Context, log *slog.Logger, p config.Pro
 
 	log.Info("retention window is open, enabling full maintenance",
 		"profile", p.Name,
-		"oldest-blob", oldest.UTC().Format(time.RFC3339),
+		"repository-start", started.UTC().Format(time.RFC3339),
 		"reclaim-possible-since", reclaimFrom.UTC().Format(time.RFC3339))
 
 	return wrapper.BuildFullMaintenanceArgs(true)
 }
 
-// probeOldestBlobTime reads the timestamp of the repository format blob,
-// which is written once when the repository is created and never
-// rewritten. Nothing in the repository can be older, so it is an exact
-// lower bound for the age of the oldest object at the cost of one
-// listing of a single-blob prefix.
-func probeOldestBlobTime(ctx context.Context, p config.Profile, password string) (time.Time, error) {
+// probeRepositoryStart reads the timestamp of the repository format
+// blob, at the cost of one listing of a single-blob prefix. The blob is
+// written when the repository is created and rewritten on parameter
+// changes, so the timestamp is at or after the repository's start - see
+// wrapper.formatBlobPrefix for why reading the repository as younger
+// than it is stays on the safe side of the decision.
+func probeRepositoryStart(ctx context.Context, p config.Profile, password string) (time.Time, error) {
 	runner, err := wrapper.New(wrapper.Options{
 		KopiaBinary: p.KopiaBinary,
 		Profile:     p,

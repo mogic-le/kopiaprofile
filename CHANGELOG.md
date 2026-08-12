@@ -18,6 +18,23 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.15] - 2026-08-12
+
+### Fixed
+
+- Corrected how 0.5.14 describes the timestamp its `full-maintenance: auto`
+  decision rests on. The format blob is written at repository creation but
+  rewritten whenever repository parameters change, so it is not the
+  never-rewritten creation marker the documentation claimed, and its
+  timestamp can be younger than the repository itself - seen live on a
+  repository whose oldest snapshot predated its own format blob by a week,
+  after its retention parameters had been corrected.
+
+  The behaviour is unchanged and was never unsafe: reading a repository as
+  younger than it is defers reclaiming, it cannot start it too early. Only
+  the reasoning in README, code comments and log field names was wrong; the
+  log now says `repository-start` instead of `oldest-blob`.
+
 ## [0.5.14] - 2026-08-12
 
 ### Added

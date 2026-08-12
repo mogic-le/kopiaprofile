@@ -47,10 +47,16 @@ func ParseFullMaintenanceMode(raw string) (FullMaintenanceMode, error) {
 }
 
 // formatBlobPrefix is the repository format blob. It is written when the
-// repository is created and never rewritten, so no blob in the
-// repository can be older than this one - which makes it the cheapest
-// exact lower bound for "how old is the oldest object here", one request
-// instead of a listing over every pack blob.
+// repository is created and rewritten whenever the repository's
+// parameters change, so its timestamp is at or after the repository's
+// start and never before it. That is what makes it usable here: one
+// request instead of a listing over every pack blob, and an age that can
+// only ever be read as younger than the repository really is, so acting
+// on it defers reclaiming rather than allowing it too early.
+//
+// Observed live: a repository whose oldest snapshot predated its own
+// format blob by a week, because the retention parameters had been
+// corrected in between.
 const formatBlobPrefix = "kopia.repository"
 
 // BuildFormatBlobListArgs returns the
@@ -122,14 +128,16 @@ func OldestBlobTimestamp(out []byte) (time.Time, error) {
 	return oldest, nil
 }
 
-// ReclaimStartsAt returns the earliest wall-clock time at which any blob
-// in a retention-locked repository can become deletable: the oldest blob
-// plus the configured retention period.
+// ReclaimStartsAt returns the wall-clock time from which blobs in a
+// retention-locked repository can start becoming deletable: the given
+// reference timestamp plus the configured retention period.
 //
-// It is deliberately a lower bound and not an exact prediction. Blobs
-// written later expire later, and a retention period that was raised
-// after the fact only ever moves the real date further out, so acting on
-// this bound can delay reclaiming but never delete something early.
+// It is deliberately not an exact prediction, and every way it is
+// imprecise errs the same way. Blobs written later expire later; a
+// retention period raised after the fact moves the real date further
+// out; and the reference timestamp itself (see formatBlobPrefix) can be
+// younger than the repository. All three push the answer later, so
+// acting on it delays reclaiming and never deletes anything early.
 func ReclaimStartsAt(oldest time.Time, retentionPeriod string) (time.Time, error) {
 	d, err := time.ParseDuration(strings.TrimSpace(retentionPeriod))
 	if err != nil {

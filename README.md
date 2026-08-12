@@ -640,18 +640,22 @@ profile lock held long enough to block the next scheduled run. Not one
 byte of that work could have succeeded.
 
 `auto` decides per run from the repository itself: it reads the
-timestamp of the format blob, which is written at creation and never
-rewritten, so nothing in the repository is older. Oldest blob plus
-retention period gives the earliest moment anything can become
-deletable. Before that, full maintenance is switched off; from then on
-it is switched on again without anyone having to remember a date. Quick
-maintenance keeps running throughout and takes care of epochs, index
-compaction and log cleanup.
+timestamp of the format blob and adds the retention period, which gives
+the point from which blobs can start becoming deletable. Before that,
+full maintenance is switched off; from then on it is switched on again
+without anyone having to remember a date. Quick maintenance keeps
+running throughout and takes care of epochs, index compaction and log
+cleanup.
 
-The bound is deliberately conservative. Blobs written later expire
-later, and raising the retention period after the fact only moves the
-real date further out, so `auto` can defer reclaiming a little but never
-deletes anything early. If the repository's age cannot be read, the
+The date is deliberately not exact, and every way it is imprecise errs
+in the same direction. Blobs written later expire later. Raising the
+retention period after the fact moves the real date further out. And the
+format blob is written at repository creation but rewritten whenever
+repository parameters change, so its timestamp can be younger than the
+repository - seen live on a repository whose oldest snapshot predated
+its own format blob by a week, after its retention parameters had been
+corrected. All three push the answer later, so `auto` can defer
+reclaiming but never deletes anything early. If the repository's age cannot be read, the
 maintenance parameters are left untouched rather than guessed at.
 
 Be aware of the transition: the first full cycle after the window opens
