@@ -593,6 +593,7 @@ profiles:
         mode: compliance            # compliance | governance | none
         retention-period: 720h      # informational
         extend-on-maintenance: true # kopia maintenance set --extend-object-locks=<value>
+        full-maintenance: auto      # auto | always | never
 ```
 
 `extend-on-maintenance` is applied before every snapshot as
@@ -610,6 +611,52 @@ Those blobs then have their expiry pushed out again on every cycle and
 can never be deleted, so the repository only ever grows. Depending on
 your kopia version, verify that its maintenance skips reclaimable packs
 before enabling this on a repository you care about.
+
+### Full maintenance under a retention lock
+
+`full-maintenance` controls kopia's full maintenance cycle via
+`kopia maintenance set --enable-full=<value>`, applied before every
+snapshot in both directions, like `extend-on-maintenance`:
+
+| Value | Behaviour |
+|---|---|
+| `auto` (default) | Disabled while the repository is younger than its own retention period, enabled from then on |
+| `always` | Always enabled — stock kopia behaviour |
+| `never` | Always disabled |
+
+The point of `auto` is that full maintenance is pure cost until the
+first blobs can expire. It walks the entire repository, marks everything
+the snapshot retention has dropped as unreferenced, and then deletes
+none of it, because every candidate is still locked. Observed live on a
+multi-terabyte repository: snapshot garbage collection grew from five to
+over twelve hours within a week, one full cycle reported
+
+```
+Found 2167(18.1 GB) unreferenced pack blobs to delete and deleted 0(0 B)
+```
+
+and a later run outlived its own timeout, was killed, and left the
+profile lock held long enough to block the next scheduled run. Not one
+byte of that work could have succeeded.
+
+`auto` decides per run from the repository itself: it reads the
+timestamp of the format blob, which is written at creation and never
+rewritten, so nothing in the repository is older. Oldest blob plus
+retention period gives the earliest moment anything can become
+deletable. Before that, full maintenance is switched off; from then on
+it is switched on again without anyone having to remember a date. Quick
+maintenance keeps running throughout and takes care of epochs, index
+compaction and log cleanup.
+
+The bound is deliberately conservative. Blobs written later expire
+later, and raising the retention period after the fact only moves the
+real date further out, so `auto` can defer reclaiming a little but never
+deletes anything early. If the repository's age cannot be read, the
+maintenance parameters are left untouched rather than guessed at.
+
+Be aware of the transition: the first full cycle after the window opens
+has a year's worth of deferred work in front of it and will be long.
+Plan a window for it rather than being surprised by it.
 
 **The S3 bucket must be created with Object-Lock enabled and a
 `DefaultRetention` configured.** `kopiaprofile` cannot do this for you

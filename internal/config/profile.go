@@ -36,6 +36,15 @@ type ObjectLockConfig struct {
 	Mode                string `yaml:"mode"`                  // compliance | governance | none
 	RetentionPeriod     string `yaml:"retention-period"`      // Go duration, e.g. "720h"; passed to kopia repository create --retention-period
 	ExtendOnMaintenance bool   `yaml:"extend-on-maintenance"` // sets kopia maintenance set --extend-object-locks
+	// FullMaintenance is auto (default) | always | never and controls
+	// kopia's full maintenance cycle via
+	// `kopia maintenance set --enable-full`. Under a retention lock,
+	// full maintenance can find plenty to reclaim and still delete
+	// nothing, because every candidate blob is locked; auto therefore
+	// keeps it disabled until the repository is old enough for its
+	// first blobs to expire, and enables it from then on without
+	// anyone having to remember. See internal/wrapper/full_maintenance.go.
+	FullMaintenance string `yaml:"full-maintenance"`
 }
 
 // Password describes where to obtain the repository password from.
@@ -676,7 +685,8 @@ func (r Repository) IsZero() bool {
 }
 
 func (o ObjectLockConfig) IsZero() bool {
-	return o.Mode == "" && o.RetentionPeriod == "" && !o.ExtendOnMaintenance
+	return o.Mode == "" && o.RetentionPeriod == "" && !o.ExtendOnMaintenance &&
+		o.FullMaintenance == ""
 }
 
 func (p Password) IsZero() bool {

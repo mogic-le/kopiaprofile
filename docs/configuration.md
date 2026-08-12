@@ -71,6 +71,7 @@ profiles:
         mode: compliance                          # compliance | governance | none
         retention-period: 720h                    # string (informational)
         extend-on-maintenance: true               # bool
+        full-maintenance: auto                    # auto | always | never
       extra-flags:                                # map[string]string
         enable-cache: ""
 

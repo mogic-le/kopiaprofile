@@ -18,6 +18,10 @@ profiles:
         mode: compliance
         retention-period: 2160h     # 90 days (informational)
         extend-on-maintenance: true
+        # auto: leave full maintenance off while the repository is
+        # younger than its retention period, since nothing in it can be
+        # deleted yet, and switch it on by itself afterwards.
+        full-maintenance: auto
     password:
       source: command
       command: "vault read -field=password secret/kopia/compliance"

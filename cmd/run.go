@@ -165,13 +165,24 @@ func runProfileCmd(flags *rootFlags, args []string) error {
 
 		// One password load for whatever pre-commands ended up queued. Tying
 		// it to policyArgs alone would leave any later pre-command without
-		// credentials the moment it is the only one.
-		if len(preCommands) > 0 {
+		// credentials the moment it is the only one. The full-maintenance
+		// gate below needs credentials too - it reads the repository's age
+		// before it decides - so it counts towards this as well, even when
+		// no other pre-command is queued.
+		if len(preCommands) > 0 || wrapper.FullMaintenanceGated(expanded) {
 			pw, perr := secrets.FromProfile(expanded).Load()
 			if perr != nil {
 				return errorf("loading password for pre-commands: %w", perr)
 			}
 			prePassword = pw
+		}
+
+		// Keep kopia's full maintenance cycle in step with what the
+		// repository's retention actually permits. Deliberately the last
+		// pre-command: it is the only one that itself talks to the
+		// repository first, so everything cheap runs before it.
+		if gateArgs := fullMaintenanceGateArgs(context.Background(), rootLogger(flags), expanded, prePassword); len(gateArgs) > 0 {
+			preCommands = append(preCommands, gateArgs)
 		}
 	}
 
