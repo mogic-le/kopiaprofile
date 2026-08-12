@@ -18,6 +18,38 @@ maintainer's checklist.
 
 ### Fixed
 
+## [0.5.14] - 2026-08-12
+
+### Added
+
+- New `object-lock.full-maintenance:` setting (`auto` | `always` | `never`),
+  applied before every snapshot as
+  `kopia maintenance set --enable-full=<value>` in both directions, like
+  `extend-on-maintenance`. Default is `auto`.
+
+  Under a retention lock, full maintenance is pure cost until the first blobs
+  can expire: it walks the whole repository, marks everything the snapshot
+  retention dropped as unreferenced, and deletes none of it, because every
+  candidate is still locked. Observed live on a multi-terabyte repository,
+  snapshot garbage collection grew from five to over twelve hours within a
+  week, one cycle reported `Found 2167(18.1 GB) unreferenced pack blobs to
+  delete and deleted 0(0 B)`, and a later run outlived its own timeout, was
+  killed, and left the profile lock held long enough to block the next
+  scheduled run.
+
+  `auto` decides per run from the repository itself: the format blob is
+  written at creation and never rewritten, so its timestamp plus the
+  configured retention period is the earliest moment anything in the
+  repository can become deletable. Before that, full maintenance is switched
+  off; from then on it is switched back on with no date to remember. Quick
+  maintenance runs throughout. The bound is conservative on purpose, so `auto`
+  can defer reclaiming but never deletes early, and a repository age that
+  cannot be read leaves the maintenance parameters untouched instead of
+  guessed at.
+
+  Note for the transition: the first full cycle after the window opens carries
+  all the deferred work and will be long. Give it a window.
+
 ## [0.5.13] - 2026-08-07
 
 ### Added
